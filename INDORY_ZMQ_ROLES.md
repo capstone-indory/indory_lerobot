@@ -100,7 +100,7 @@ lerobot-teleoperate \
   --teleop.type=bi_so_leader \
   --teleop.left_arm_config.port=<left-leader-port> \
   --teleop.right_arm_config.port=<right-leader-port> \
-  --fps=30 \
+  --fps=15 \
   --display_data=true
 ```
 
@@ -121,7 +121,7 @@ lerobot-record \
   --teleop.right_arm_config.port=<right-leader-port> \
   --dataset.repo_id=<user>/<dataset-name> \
   --dataset.single_task="<task>" \
-  --dataset.fps=30
+  --dataset.fps=15
 ```
 
 This records the action returned by `robot.send_action()`. It is not a passive

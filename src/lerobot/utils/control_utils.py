@@ -18,6 +18,7 @@
 
 
 import logging
+import sys
 import traceback
 from contextlib import nullcontext
 from copy import copy
@@ -34,6 +35,19 @@ from lerobot.policies.pretrained import PreTrainedPolicy
 from lerobot.policies.utils import prepare_observation_for_inference
 from lerobot.processor import PolicyAction, PolicyProcessorPipeline
 from lerobot.robots import Robot
+
+
+def _patch_macos_pynput_hiservices() -> None:
+    if sys.platform != "darwin":
+        return
+    try:
+        import ApplicationServices
+        import pynput._util.darwin as pynput_darwin
+
+        if not hasattr(pynput_darwin.HIServices, "AXIsProcessTrusted"):
+            pynput_darwin.HIServices = ApplicationServices
+    except Exception as exc:
+        logging.debug("Could not patch macOS pynput HIServices: %s", exc)
 
 
 @cache
@@ -145,6 +159,8 @@ def init_keyboard_listener():
 
     # Only import pynput if not in a headless environment
     from pynput import keyboard
+
+    _patch_macos_pynput_hiservices()
 
     def on_press(key):
         try:

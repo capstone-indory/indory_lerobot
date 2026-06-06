@@ -2,11 +2,9 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-import io
 import json
 import logging
 import math
-import time
 from functools import cached_property
 from pathlib import Path
 from typing import Any
@@ -16,49 +14,20 @@ import msgpack
 import numpy as np
 import zmq
 
-try:
-    import av
-except Exception:  # pragma: no cover - optional runtime dependency
-    av = None
-
 from lerobot.utils.constants import HF_LEROBOT_CALIBRATION, ROBOTS
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
 from ..robot import Robot
-from .config_xlerobot import XLerobotClientConfig
+from .config_xlerobot import IndoryFastZMQCameraConfig, XLerobotClientConfig
+from .xlerobot_camera_stream import CameraStreamPump
+from .xlerobot_camera_materializer import materialize_camera_archive as materialize_camera_archive_file
+from .xlerobot_command_builder import XLerobotCommandBuilder
+from .xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, LEGACY_CAMERA_TOPIC_TO_NAME, RIGHT_MOTORS
 from .xlerobot_keyboard_control import (
     action_from_pressed_keys,
-    arm_recenter_offsets,
-    bounded_raw_target,
-    head_relative_target_from_action,
 )
-from .xlerobot_leader_kinematics import LeaderKinematicMapper, cap_raw_targets_to_current
-
-
-SCHEMA_VERSION = "xlerobot_v1.1"
-LEFT_MOTORS = (
-    "left_arm_shoulder_pan",
-    "left_arm_shoulder_lift",
-    "left_arm_elbow_flex",
-    "left_arm_wrist_flex",
-    "left_arm_wrist_roll",
-    "left_arm_gripper",
-)
-RIGHT_MOTORS = (
-    "right_arm_shoulder_pan",
-    "right_arm_shoulder_lift",
-    "right_arm_elbow_flex",
-    "right_arm_wrist_flex",
-    "right_arm_wrist_roll",
-    "right_arm_gripper",
-)
-HEAD_MOTORS = ("head_motor_1", "head_motor_2")
-CANONICAL_MOTORS = RIGHT_MOTORS + LEFT_MOTORS + HEAD_MOTORS
-LEGACY_CAMERA_TOPIC_TO_NAME = {
-    "/xlerobot/head/rgb/image_raw": "head",
-    "/xlerobot/wrist_left/rgb/image_raw": "left_wrist",
-    "/xlerobot/wrist_right/rgb/image_raw": "right_wrist",
-}
+from .xlerobot_leader_kinematics import LeaderKinematicMapper
+from .xlerobot_rgbd_decode import RgbdDepthDecoder
 
 
 class XLerobotClient(Robot):
@@ -77,6 +46,7 @@ class XLerobotClient(Robot):
         self.port_zmq_observations = config.port_zmq_observations
         self.port_zmq_rpc = config.port_zmq_rpc
         self.port_zmq_cameras = config.port_zmq_cameras
+        self.port_zmq_rgbd = config.port_zmq_rgbd
         self.robot_id = int(config.robot_id)
         self.source_id = config.source_id
         self.source_role = config.source_role
@@ -89,15 +59,17 @@ class XLerobotClient(Robot):
         self.zmq_context = None
         self.zmq_cmd_socket = None
         self.zmq_state_socket = None
-        self.zmq_camera_socket = None
+        self.zmq_rgbd_socket = None
+        self.camera_stream: CameraStreamPump | None = None
         self._is_connected = False
         self._seq = 0
         self._warned_encodings: set[str] = set()
-        self._h264_init_by_topic: dict[str, bytes] = {}
-        self.last_frames: dict[str, np.ndarray] = {}
+        self.rgbd_decoder = RgbdDepthDecoder()
+        self.last_depth_frames: dict[str, np.ndarray] = {}
+        self.last_rgbd_metadata: dict[str, dict[str, Any]] = {}
         self.last_remote_state: dict[str, Any] = {}
         self.latest_topics: dict[str, dict[str, Any]] = {}
-        self.camera_topic_to_name = {
+        self.camera_topic_to_name = self._camera_topic_mapping() or {
             f"rgb.front.{self.robot_id}": "head",
             f"rgb.wrist_left.{self.robot_id}": "left_wrist",
             f"rgb.wrist_right.{self.robot_id}": "right_wrist",
@@ -105,7 +77,13 @@ class XLerobotClient(Robot):
         }
         self.follower_calibration = self._load_follower_calibration(config.follower_calibration_path)
         self.leader_mapper = LeaderKinematicMapper(self.follower_calibration, self.leader_action_units)
-        self.arm_target_offsets = dict.fromkeys((*LEFT_MOTORS, *RIGHT_MOTORS), 0.0)
+        self.command_builder = XLerobotCommandBuilder(
+            config,
+            self.leader_mapper,
+            self.follower_calibration,
+            self.latest_topics,
+            self._state_order,
+        )
         self.logs = {}
 
         self.speed_levels = [
@@ -131,8 +109,20 @@ class XLerobotClient(Robot):
         return {name: (cfg.height, cfg.width, 3) for name, cfg in self.config.cameras.items()}
 
     @cached_property
-    def observation_features(self) -> dict[str, type | tuple]:
-        return {**self._state_ft, **self._cameras_ft}
+    def _depth_ft(self) -> dict[str, dict[str, Any]]:
+        if not self.config.enable_rgbd:
+            return {}
+        return {
+            str(self.config.rgbd_depth_feature): {
+                "dtype": "uint16",
+                "shape": (int(self.config.rgbd_depth_height), int(self.config.rgbd_depth_width)),
+                "names": ["height", "width"],
+            }
+        }
+
+    @cached_property
+    def observation_features(self) -> dict[str, type | tuple | dict]:
+        return {**self._state_ft, **self._cameras_ft, **self._depth_ft}
 
     @cached_property
     def action_features(self) -> dict[str, type]:
@@ -162,13 +152,23 @@ class XLerobotClient(Robot):
         camera_topics = [
             topic for topic, name in self.camera_topic_to_name.items() if name in self._cameras_ft
         ]
-        self.zmq_camera_socket = self._make_sub_socket(self.port_zmq_cameras, camera_topics)
+        self.camera_stream = CameraStreamPump(
+            remote_ip=self.remote_ip,
+            port=self.port_zmq_cameras,
+            topics=camera_topics,
+            topic_to_name=self.camera_topic_to_name,
+            camera_names=set(self._cameras_ft),
+        )
+        self.camera_stream.start()
+        if self.config.enable_rgbd:
+            self.zmq_rgbd_socket = self._make_sub_socket(self.port_zmq_rgbd, [self.config.rgbd_topic])
         health = self._rpc("health")
         if not health.get("ok"):
             self.disconnect_sockets()
             raise DeviceNotConnectedError(f"indory_zmq health check failed: {health}")
         self._merge_remote_calibration(self._rpc("calibration"))
         self._is_connected = True
+        self._warm_up_cameras()
 
     def calibrate(self) -> None:
         pass
@@ -176,14 +176,31 @@ class XLerobotClient(Robot):
     def configure(self) -> None:
         pass
 
+    def start_camera_archive(self, root: Path | str, episode_index: int) -> Path | None:
+        if self.camera_stream is None:
+            return None
+        return self.camera_stream.start_archive(root, episode_index)
+
+    def stop_camera_archive(self, *, keep: bool = True) -> Path | None:
+        if self.camera_stream is None:
+            return None
+        return self.camera_stream.stop_archive(keep=keep)
+
+    def materialize_camera_archive(self, dataset: Any, archive_path: Path | str | None) -> dict[str, int]:
+        return materialize_camera_archive_file(dataset, archive_path)
+
     def get_observation(self) -> dict[str, Any]:
         if not self._is_connected:
             raise DeviceNotConnectedError("XLerobotClient is not connected.")
         self._poll_zmq()
         obs_dict = self._state_from_latest_topics()
+        latest_frames = self.camera_stream.frames() if self.camera_stream is not None else {}
         for cam_name, shape in self._cameras_ft.items():
-            frame = self.last_frames.get(cam_name)
+            frame = latest_frames.get(cam_name)
             obs_dict[cam_name] = frame if frame is not None else np.zeros(shape, dtype=np.uint8)
+        for name, ft in self._depth_ft.items():
+            depth = self.last_depth_frames.get(name)
+            obs_dict[name] = depth if depth is not None else np.zeros(ft["shape"], dtype=np.uint16)
         self.last_remote_state = obs_dict
         return obs_dict
 
@@ -202,45 +219,18 @@ class XLerobotClient(Robot):
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self._is_connected or self.zmq_cmd_socket is None:
             raise DeviceNotConnectedError("XLerobotClient is not connected.")
-        action = dict(action)
-        if action.get("arm.recenter"):
-            self.arm_target_offsets.update(
-                arm_recenter_offsets(
-                    action, self._current_canonical_ticks(), self.leader_mapper, LEFT_MOTORS, RIGHT_MOTORS
-                )
-            )
-        base_cmd = self._base_cmd_from_action(action)
-        joint_targets = self._joint_targets_from_action(action)
-        head_target = head_relative_target_from_action(action, self.latest_topics, self.robot_id)
-        payload: dict[str, Any] = {
-            "schema": SCHEMA_VERSION,
-            "source_id": self.source_id,
-            "source_role": self.source_role,
-            "seq": self._seq,
-            "stamp_ns": time.time_ns(),
-            "lease_ms": self.command_lease_ms,
-            "frame": "body",
-        }
-        if base_cmd is not None:
-            payload["base_cmd_vel"] = base_cmd
-        if joint_targets is not None:
-            canonical_targets = self._canonical_targets_from_ros_sparse(joint_targets)
-            if canonical_targets is None:
-                payload["joint_targets_sparse"] = joint_targets
-            else:
-                payload["arm_joint_pos_target"] = canonical_targets
-                payload["arm_joint_pos_target_units"] = "feetech_ticks"
-        if head_target is not None:
-            payload["head_joint_relative_target"] = head_target
+        result = self.command_builder.build(
+            action,
+            seq=self._seq,
+            source_id=self.source_id,
+            source_role=self.source_role,
+            lease_ms=self.command_lease_ms,
+            robot_id=self.robot_id,
+        )
         self._seq += 1
-        if (
-            "base_cmd_vel" in payload
-            or "joint_targets_sparse" in payload
-            or "arm_joint_pos_target" in payload
-            or "head_joint_relative_target" in payload
-        ):
-            self.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
-        return self._sent_action_vector(base_cmd, joint_targets)
+        if self.command_builder.is_material_command(result.payload):
+            self.zmq_cmd_socket.send(msgpack.packb(result.payload, use_bin_type=True), flags=zmq.NOBLOCK)
+        return result.sent_action
 
     def disconnect(self):
         if not self._is_connected:
@@ -253,7 +243,10 @@ class XLerobotClient(Robot):
         self._is_connected = False
 
     def disconnect_sockets(self) -> None:
-        for attr in ("zmq_camera_socket", "zmq_state_socket", "zmq_cmd_socket"):
+        if self.camera_stream is not None:
+            self.camera_stream.stop()
+            self.camera_stream = None
+        for attr in ("zmq_rgbd_socket", "zmq_state_socket", "zmq_cmd_socket"):
             sock = getattr(self, attr)
             if sock is not None:
                 sock.close(0)
@@ -302,12 +295,22 @@ class XLerobotClient(Robot):
     def _poll_zmq(self) -> None:
         poller = zmq.Poller()
         poller.register(self.zmq_state_socket, zmq.POLLIN)
-        poller.register(self.zmq_camera_socket, zmq.POLLIN)
+        if self.zmq_rgbd_socket is not None:
+            poller.register(self.zmq_rgbd_socket, zmq.POLLIN)
         events = dict(poller.poll(self.polling_timeout_ms))
         if self.zmq_state_socket in events:
             self._drain_state_socket()
-        if self.zmq_camera_socket in events:
-            self._drain_camera_socket()
+        if self.zmq_rgbd_socket is not None and self.zmq_rgbd_socket in events:
+            self._drain_rgbd_socket()
+
+    def _warm_up_cameras(self) -> None:
+        if not self._cameras_ft:
+            return
+        if self.camera_stream is None:
+            return
+        missing = self.camera_stream.warm_up(min(3.0, max(0.5, float(self.connect_timeout_s))))
+        if missing:
+            logging.warning("Camera warm-up incomplete; missing initial frames for %s", ", ".join(missing))
 
     def _drain_state_socket(self) -> None:
         while True:
@@ -320,60 +323,50 @@ class XLerobotClient(Robot):
             if isinstance(payload, dict):
                 self.latest_topics[topic] = payload
 
-    def _drain_camera_socket(self) -> None:
+    def _drain_rgbd_socket(self) -> None:
+        latest_payload: tuple[str, dict[str, Any]] | None = None
         while True:
             try:
-                topic_raw, payload_raw = self.zmq_camera_socket.recv_multipart(flags=zmq.NOBLOCK)
+                topic_raw, payload_raw = self.zmq_rgbd_socket.recv_multipart(flags=zmq.NOBLOCK)
             except zmq.Again:
-                return
+                break
             topic = topic_raw.decode("utf-8", errors="replace")
             payload = msgpack.unpackb(payload_raw, raw=False)
             if isinstance(payload, dict):
-                self._update_camera_frame(topic, payload)
+                latest_payload = (topic, payload)
+        if latest_payload is not None:
+            self._update_rgbd_frame(*latest_payload)
 
-    def _update_camera_frame(self, topic: str, payload: dict[str, Any]) -> None:
-        cam_name = self.camera_topic_to_name.get(topic)
-        data = payload.get("data")
-        encoding = str(payload.get("encoding") or "")
-        if cam_name not in self._cameras_ft or not isinstance(data, (bytes, bytearray)):
+    def _update_rgbd_frame(self, topic: str, payload: dict[str, Any]) -> None:
+        if topic != self.config.rgbd_topic:
             return
-        if encoding == "jpeg":
-            frame = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
-        elif encoding == "h264_fmp4":
-            frame = self._decode_h264_fmp4(topic, payload, bytes(data))
-        else:
-            if encoding not in self._warned_encodings:
-                logging.warning("Skipping %s camera payload with unsupported encoding=%s", topic, encoding)
-                self._warned_encodings.add(encoding)
+        feature_name = str(self.config.rgbd_depth_feature)
+        depth = self.rgbd_decoder.decode_depth(payload, self._warned_encodings)
+        if depth is None:
             return
-        if frame is not None:
-            self.last_frames[cam_name] = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        target_shape = self._depth_ft.get(feature_name, {}).get("shape")
+        if target_shape and depth.shape != tuple(target_shape):
+            depth = cv2.resize(
+                depth,
+                (int(target_shape[1]), int(target_shape[0])),
+                interpolation=cv2.INTER_NEAREST,
+            )
+        self.last_depth_frames[feature_name] = np.ascontiguousarray(depth.astype(np.uint16, copy=False))
+        self.last_rgbd_metadata[feature_name] = {
+            "stamp_ns": payload.get("stamp_ns"),
+            "depth_format": payload.get("depth_format"),
+            "depth_units": payload.get("depth_units"),
+            "aligned_depth_to_color": payload.get("aligned_depth_to_color"),
+        }
 
-    def _decode_h264_fmp4(self, topic: str, payload: dict[str, Any], data: bytes) -> np.ndarray | None:
-        if av is None:
-            if "h264_fmp4" not in self._warned_encodings:
-                logging.warning("Skipping h264_fmp4 camera payloads because PyAV is not installed.")
-                self._warned_encodings.add("h264_fmp4")
-            return None
-        init = payload.get("init")
-        if isinstance(init, (bytes, bytearray)) and init:
-            self._h264_init_by_topic[topic] = bytes(init)
-        init_bytes = self._h264_init_by_topic.get(topic, b"")
-        if not init_bytes:
-            return None
-        try:
-            with av.open(io.BytesIO(init_bytes + data), mode="r", format="mp4") as container:
-                last_frame = None
-                for frame in container.decode(video=0):
-                    last_frame = frame
-                if last_frame is None:
-                    return None
-                return last_frame.to_ndarray(format="bgr24")
-        except Exception as exc:
-            if topic not in self._warned_encodings:
-                logging.warning("Failed to decode h264_fmp4 camera payload for %s: %s", topic, exc)
-                self._warned_encodings.add(topic)
-            return None
+    def _camera_topic_mapping(self) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for name, cfg in self.config.cameras.items():
+            if isinstance(cfg, IndoryFastZMQCameraConfig):
+                mapping[str(cfg.topic)] = str(name)
+        if mapping:
+            mapping.update(LEGACY_CAMERA_TOPIC_TO_NAME)
+        return mapping
 
     def _state_from_latest_topics(self) -> dict[str, Any]:
         state = {key: 0.0 for key in self._state_order}
@@ -391,79 +384,6 @@ class XLerobotClient(Robot):
             state["x.vel"], state["y.vel"], state["theta.vel"] = map(float, base_vel[:3])
         state["observation.state"] = np.array([state[k] for k in self._state_order], dtype=np.float32)
         return state
-
-    def _base_cmd_from_action(self, action: dict[str, Any]) -> list[float] | None:
-        vals = [float(action.get(k, 0.0) or 0.0) for k in ("x.vel", "y.vel", "theta.vel")]
-        return vals if any(abs(v) > 1e-9 for v in vals) else [0.0, 0.0, 0.0]
-
-    def _joint_targets_from_action(self, action: dict[str, Any]) -> list[float | None] | None:
-        targets: list[float | None] = [None] * 14
-        self._fill_side_targets(action, targets, "left", LEFT_MOTORS, 0)
-        self._fill_side_targets(action, targets, "right", RIGHT_MOTORS, 6)
-        return targets if any(value is not None for value in targets) else None
-
-    def _canonical_targets_from_ros_sparse(self, targets: list[float | None]) -> list[float] | None:
-        current = self._current_canonical_ticks()
-        if current is None:
-            return None
-        canonical = list(current)
-        for idx, value in enumerate(targets[6:12]):
-            if value is not None:
-                canonical[idx] = float(value)
-        for idx, value in enumerate(targets[:6]):
-            if value is not None:
-                canonical[6 + idx] = float(value)
-        for idx, value in enumerate(targets[12:14], start=12):
-            if value is not None:
-                canonical[idx] = float(value)
-        return cap_raw_targets_to_current(
-            canonical,
-            current,
-            CANONICAL_MOTORS,
-            self.follower_calibration,
-            self.config.max_relative_target,
-            self.leader_action_units,
-        )
-
-    def _current_canonical_ticks(self) -> list[float] | None:
-        proprio = self.latest_topics.get(f"proprio.{self.robot_id}", {})
-        joint_pos = proprio.get("joint_pos") if isinstance(proprio, dict) else None
-        if not isinstance(joint_pos, list) or len(joint_pos) < 14:
-            return None
-        try:
-            values = [float(value) for value in joint_pos[:14]]
-        except (TypeError, ValueError):
-            return None
-        return values if all(math.isfinite(value) for value in values) else None
-
-    def _fill_side_targets(
-        self, action: dict[str, Any], targets: list[float | None], side: str, motors: tuple[str, ...], offset: int
-    ) -> None:
-        try:
-            side_targets = self.leader_mapper.targets_for_side(action, side, motors)
-        except ValueError as exc:
-            logging.warning("Dropping %s arm targets: %s", side, exc)
-            return
-        for i, value in enumerate(side_targets):
-            if value is not None:
-                value += self.arm_target_offsets.get(motors[i], 0.0)
-                targets[offset + i] = bounded_raw_target(motors[i], value, self.follower_calibration.get(motors[i]))
-
-    def _sent_action_vector(
-        self, base_cmd: list[float] | None, joint_targets: list[float | None] | None
-    ) -> dict[str, Any]:
-        values = {key: 0.0 for key in self._state_order}
-        if joint_targets is not None:
-            for name, value in zip(LEFT_MOTORS, joint_targets[:6], strict=False):
-                if value is not None:
-                    values[name] = float(value)
-            for name, value in zip(RIGHT_MOTORS, joint_targets[6:12], strict=False):
-                if value is not None:
-                    values[name] = float(value)
-        if base_cmd is not None:
-            values["x.vel"], values["y.vel"], values["theta.vel"] = base_cmd
-        values["action"] = np.array([values[k] for k in self._state_order], dtype=np.float32)
-        return values
 
     def _load_follower_calibration(self, path: str | None) -> dict[str, dict[str, Any]]:
         candidates = []

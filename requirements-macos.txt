@@ -276,6 +276,8 @@ jinja2==3.1.6
     # via torch
 jsonlines==4.0.0
     # via lerobot
+msgpack==1.1.2
+    # via lerobot
 kiwisolver==1.4.9
     # via matplotlib
 labmaze==1.0.6
@@ -724,6 +726,8 @@ zipp==3.23.0
     # via
     #   etils
     #   importlib-metadata
+zstandard==0.25.0
+    # via lerobot
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

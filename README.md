@@ -76,7 +76,9 @@ Use this checkout directly, or install it editable in the environment you use
 for LeRobot:
 
 ```bash
-cd /home/pi/indory_lerobot
+git clone https://github.com/capstone-indory/indory_lerobot.git
+cd indory_lerobot
+python -m pip install -U pip
 python -m pip install -e .
 ```
 
@@ -125,7 +127,7 @@ INDORY_ROBOT_ID=indory_xlerobot
 INDORY_ZMQ_ROBOT_ID=0
 INDORY_ZMQ_SOURCE_ID=mac_xlerobot_teleop
 INDORY_ZMQ_SOURCE_ROLE=teleop
-INDORY_FPS=30
+INDORY_FPS=15
 INDORY_DISPLAY_DATA=true
 ```
 
@@ -168,7 +170,11 @@ Common optional variables:
 INDORY_NUM_EPISODES=10
 INDORY_EPISODE_TIME_S=60
 INDORY_RESET_TIME_S=10
-INDORY_FPS=30
+INDORY_FPS=15
+INDORY_RESUME=false
+INDORY_VCODEC=auto
+INDORY_STREAMING_ENCODING=false
+INDORY_DISPLAY_DATA=false
 INDORY_ZMQ_SOURCE_ID=mac_xlerobot_record
 INDORY_ZMQ_SOURCE_ROLE=record
 ```
@@ -176,16 +182,29 @@ INDORY_ZMQ_SOURCE_ROLE=record
 The saved action is the action returned by `robot.send_action()`. That means the
 dataset records what this client attempted to send through the ZMQ command path.
 
+RGB camera packets from `8866` are archived during each episode and decoded into
+the LeRobot dataset at episode save time. This keeps teleop/record control
+responsive even when real-time H.264 preview decoding falls behind.
+
 Do not use this script for shadow logging beside another controller. A passive
 observer recorder should subscribe to `8855`, `8866`, and optionally `8867` only
 and must not connect to `8856`; that tool is not implemented yet.
 
 ## Ubuntu Training
 
+On an AI server, clone this repository, install it in the training environment,
+then run the training wrapper against a Hugging Face dataset repo:
+
+```bash
+git clone https://github.com/capstone-indory/indory_lerobot.git
+cd indory_lerobot
+python -m pip install -U pip
+python -m pip install -e .[all]
+```
+
 The training wrapper is a default ACT training entrypoint:
 
 ```bash
-cd /home/pi/indory_lerobot
 INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
 ./scripts/indory_ubuntu_train.sh
 ```

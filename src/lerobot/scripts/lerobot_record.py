@@ -68,6 +68,7 @@ lerobot-record \
 """
 
 import logging
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -588,23 +589,32 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             recorded_episodes = 0
             while recorded_episodes < cfg.dataset.num_episodes and not events["stop_recording"]:
                 log_say(f"Recording episode {dataset.num_episodes}", cfg.play_sounds)
-                record_loop(
-                    robot=robot,
-                    events=events,
-                    fps=cfg.dataset.fps,
-                    teleop_action_processor=teleop_action_processor,
-                    robot_action_processor=robot_action_processor,
-                    robot_observation_processor=robot_observation_processor,
-                    teleop=teleop,
-                    policy=policy,
-                    preprocessor=preprocessor,
-                    postprocessor=postprocessor,
-                    dataset=dataset,
-                    control_time_s=cfg.dataset.episode_time_s,
-                    single_task=cfg.dataset.single_task,
-                    display_data=cfg.display_data,
-                    display_compressed_images=display_compressed_images,
-                )
+                camera_archive_started = False
+                camera_archive_path = None
+                if hasattr(robot, "start_camera_archive"):
+                    camera_archive_path = robot.start_camera_archive(dataset.root, dataset.num_episodes)
+                    camera_archive_started = True
+                try:
+                    record_loop(
+                        robot=robot,
+                        events=events,
+                        fps=cfg.dataset.fps,
+                        teleop_action_processor=teleop_action_processor,
+                        robot_action_processor=robot_action_processor,
+                        robot_observation_processor=robot_observation_processor,
+                        teleop=teleop,
+                        policy=policy,
+                        preprocessor=preprocessor,
+                        postprocessor=postprocessor,
+                        dataset=dataset,
+                        control_time_s=cfg.dataset.episode_time_s,
+                        single_task=cfg.dataset.single_task,
+                        display_data=cfg.display_data,
+                        display_compressed_images=display_compressed_images,
+                    )
+                finally:
+                    if camera_archive_started and hasattr(robot, "stop_camera_archive"):
+                        camera_archive_path = robot.stop_camera_archive(keep=not events["rerecord_episode"])
 
                 # Execute a few seconds without recording to give time to manually reset the environment
                 # Skip reset for the last episode to be recorded
@@ -630,9 +640,13 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
                     log_say("Re-record episode", cfg.play_sounds)
                     events["rerecord_episode"] = False
                     events["exit_early"] = False
+                    if camera_archive_path is not None:
+                        shutil.rmtree(Path(camera_archive_path).parent, ignore_errors=True)
                     dataset.clear_episode_buffer()
                     continue
 
+                if hasattr(robot, "materialize_camera_archive"):
+                    robot.materialize_camera_archive(dataset, camera_archive_path)
                 dataset.save_episode()
                 recorded_episodes += 1
     finally:

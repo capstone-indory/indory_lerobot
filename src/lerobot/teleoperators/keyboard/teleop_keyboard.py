@@ -48,6 +48,19 @@ except Exception as e:
     logging.info(f"Could not import pynput: {e}")
 
 
+def _patch_macos_pynput_hiservices() -> None:
+    if sys.platform != "darwin" or not PYNPUT_AVAILABLE:
+        return
+    try:
+        import ApplicationServices
+        import pynput._util.darwin as pynput_darwin
+
+        if not hasattr(pynput_darwin.HIServices, "AXIsProcessTrusted"):
+            pynput_darwin.HIServices = ApplicationServices
+    except Exception as exc:
+        logging.debug("Could not patch macOS pynput HIServices: %s", exc)
+
+
 class KeyboardTeleop(Teleoperator):
     """
     Teleop class to use keyboard inputs for control.
@@ -90,6 +103,7 @@ class KeyboardTeleop(Teleoperator):
     def connect(self) -> None:
         if PYNPUT_AVAILABLE:
             logging.info("pynput is available - enabling local keyboard listener.")
+            _patch_macos_pynput_hiservices()
             self.listener = keyboard.Listener(
                 on_press=self._on_press,
                 on_release=self._on_release,

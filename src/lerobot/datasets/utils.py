@@ -613,7 +613,7 @@ def _validate_feature_names(features: dict[str, dict]) -> None:
 
 
 def hw_to_dataset_features(
-    hw_features: dict[str, type | tuple], prefix: str, use_video: bool = True
+    hw_features: dict[str, type | tuple | dict], prefix: str, use_video: bool = True
 ) -> dict[str, dict]:
     """Convert hardware-specific features to a LeRobot dataset feature dictionary.
 
@@ -638,6 +638,7 @@ def hw_to_dataset_features(
         if ftype is float or (isinstance(ftype, PolicyFeature) and ftype.type != FeatureType.VISUAL)
     }
     cam_fts = {key: shape for key, shape in hw_features.items() if isinstance(shape, tuple)}
+    explicit_fts = {key: spec for key, spec in hw_features.items() if isinstance(spec, dict)}
 
     if joint_fts and prefix == ACTION:
         features[prefix] = {
@@ -658,6 +659,16 @@ def hw_to_dataset_features(
             "dtype": "video" if use_video else "image",
             "shape": shape,
             "names": ["height", "width", "channels"],
+        }
+
+    for key, spec in explicit_fts.items():
+        if "dtype" not in spec or "shape" not in spec:
+            raise ValueError(f"Explicit feature spec for {key!r} must include dtype and shape.")
+        feature_key = key if key.startswith(f"{prefix}.") else f"{prefix}.{key}"
+        features[feature_key] = {
+            "dtype": spec["dtype"],
+            "shape": tuple(spec["shape"]),
+            "names": spec.get("names"),
         }
 
     _validate_feature_names(features)
@@ -689,6 +700,10 @@ def build_dataset_frame(
             frame[key] = np.array([values[name] for name in ft["names"]], dtype=np.float32)
         elif ft["dtype"] in ["image", "video"]:
             frame[key] = values[key.removeprefix(f"{prefix}.images.")]
+        elif is_valid_numpy_dtype_string(ft["dtype"]):
+            raw_key = key.removeprefix(f"{prefix}.")
+            value = values[key] if key in values else values[raw_key]
+            frame[key] = np.asarray(value, dtype=np.dtype(ft["dtype"]))
 
     return frame
 

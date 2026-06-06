@@ -18,9 +18,27 @@ from dataclasses import dataclass, field
 from lerobot.cameras.configs import CameraConfig, Cv2Rotation, ColorMode
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
-from lerobot.cameras.zmq.configuration_zmq import ZMQCameraConfig
 
 from ..config import RobotConfig
+
+
+@CameraConfig.register_subclass("indory_fast_zmq")
+@dataclass
+class IndoryFastZMQCameraConfig(CameraConfig):
+    """Feature metadata for RGB frames decoded by XLerobotClient itself.
+
+    This is intentionally not `ZMQCameraConfig`: the Indoory optimized camera
+    socket uses msgpack multipart payloads, not the generic JSON/base64 camera
+    protocol.
+    """
+
+    topic: str = "rgb.front.0"
+    color_mode: ColorMode = ColorMode.RGB
+
+    def __post_init__(self) -> None:
+        self.color_mode = ColorMode(self.color_mode)
+        if not str(self.topic).strip():
+            raise ValueError("`topic` cannot be empty.")
 
 
 def xlerobot_cameras_config() -> dict[str, CameraConfig]:
@@ -69,32 +87,26 @@ def xlerobot_client_cameras_config() -> dict[str, CameraConfig]:
     directly, so these configs provide LeRobot feature metadata only.
     """
     return {
-        "head": ZMQCameraConfig(
-            server_address="indory_zmq",
-            port=8866,
-            camera_name="rgb.front.0",
-            fps=30,
+        "head": IndoryFastZMQCameraConfig(
+            topic="rgb.front.0",
+            fps=15,
             width=640,
             height=480,
-            color_mode=ColorMode.BGR,
+            color_mode=ColorMode.RGB,
         ),
-        "left_wrist": ZMQCameraConfig(
-            server_address="indory_zmq",
-            port=8866,
-            camera_name="rgb.wrist_left.0",
-            fps=30,
+        "left_wrist": IndoryFastZMQCameraConfig(
+            topic="rgb.wrist_left.0",
+            fps=15,
             width=640,
             height=480,
-            color_mode=ColorMode.BGR,
+            color_mode=ColorMode.RGB,
         ),
-        "right_wrist": ZMQCameraConfig(
-            server_address="indory_zmq",
-            port=8866,
-            camera_name="rgb.wrist_right.0",
-            fps=30,
+        "right_wrist": IndoryFastZMQCameraConfig(
+            topic="rgb.wrist_right.0",
+            fps=15,
             width=640,
             height=480,
-            color_mode=ColorMode.BGR,
+            color_mode=ColorMode.RGB,
         ),
     }
 
@@ -142,6 +154,7 @@ class XLerobotClientConfig(RobotConfig):
     port_zmq_observations: int = 8855
     port_zmq_rpc: int = 8857
     port_zmq_cameras: int = 8866
+    port_zmq_rgbd: int = 8867
     robot_id: int = 0
     source_id: str = "mac_xlerobot_client"
     source_role: str = "teleop"
@@ -149,9 +162,14 @@ class XLerobotClientConfig(RobotConfig):
     follower_calibration_path: str | None = None
     leader_action_units: str = "degrees"
     max_relative_target: float | dict[str, float] | None = 10.0
-    head_step_rad: float = 0.025
-    head_pan_sign: float = -1.0
-    head_tilt_sign: float = -1.0
+    head_step_rad: float = 0.05
+    head_pan_sign: float = 1.0
+    head_tilt_sign: float = 1.0
+    enable_rgbd: bool = False
+    rgbd_topic: str = "/xlerobot/head/rgbd"
+    rgbd_depth_feature: str = "depth.head"
+    rgbd_depth_width: int = 640
+    rgbd_depth_height: int = 480
 
     teleop_keys: dict[str, str] = field(
         default_factory=lambda: {
