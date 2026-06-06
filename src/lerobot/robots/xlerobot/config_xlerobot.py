@@ -1,0 +1,149 @@
+# Copyright 2024 The HuggingFace Inc. team. All rights reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+from dataclasses import dataclass, field
+
+from lerobot.cameras.configs import CameraConfig, Cv2Rotation, ColorMode
+from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
+from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
+
+from ..config import RobotConfig
+
+
+def xlerobot_cameras_config() -> dict[str, CameraConfig]:
+    return {
+        "head": RealSenseCameraConfig(
+            serial_number_or_name=os.getenv("XLEROBOT_REALSENSE_SERIAL", "944122072978"),
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
+            rotation=Cv2Rotation.NO_ROTATION,
+            use_depth=False,
+        ),
+        "left_wrist": OpenCVCameraConfig(
+            index_or_path=os.getenv(
+                "XLEROBOT_LEFT_WRIST_CAMERA",
+                "/dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.3:1.0-video-index0",
+            ),
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
+            rotation=Cv2Rotation.NO_ROTATION,
+            fourcc="MJPG",
+        ),
+        "right_wrist": OpenCVCameraConfig(
+            index_or_path=os.getenv(
+                "XLEROBOT_RIGHT_WRIST_CAMERA",
+                "/dev/v4l/by-path/platform-xhci-hcd.1-usb-0:1.4:1.0-video-index0",
+            ),
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
+            rotation=Cv2Rotation.ROTATE_180,
+            warmup_s=2,
+            fourcc="MJPG",
+        ),
+    }
+
+
+@RobotConfig.register_subclass("xlerobot")
+@dataclass
+class XLerobotConfig(RobotConfig):
+    
+    port1: str = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D044741-if00"  # left arm + head
+    port2: str = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B14032190-if00"  # right arm + mobile base
+    disable_torque_on_disconnect: bool = True
+
+    # `max_relative_target` limits the per-command positional jump for safety.
+    # With RANGE_M100_100 normalization, 5.0 is a conservative soft-start step.
+    max_relative_target: float | dict[str, float] | None = 5.0
+
+    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_cameras_config)
+
+    # Set to `True` for backward compatibility with previous policies/dataset
+    use_degrees: bool = False
+
+    teleop_keys: dict[str, str] = field(
+        default_factory=lambda: {
+            # Movement
+            "forward": "i",
+            "backward": "k",
+            "left": "j",
+            "right": "l",
+            "rotate_left": "u",
+            "rotate_right": "o",
+            # Speed control
+            "speed_up": "n",
+            "speed_down": "m",
+            # quit teleop
+            "quit": "b",
+        }
+    )
+
+
+
+@dataclass
+class XLerobotHostConfig:
+    # Network Configuration
+    port_zmq_cmd: int = 5555
+    port_zmq_observations: int = 5556
+
+    # Duration of the application
+    connection_time_s: int = 3600
+
+    # Watchdog: stop the robot if no command is received for over 0.5 seconds.
+    watchdog_timeout_ms: int = 500
+
+    # If robot jitters decrease the frequency and monitor cpu load with `top` in cmd
+    max_loop_freq_hz: int = 30
+
+@RobotConfig.register_subclass("xlerobot_client")
+@dataclass
+class XLerobotClientConfig(RobotConfig):
+    # Network Configuration
+    remote_ip: str
+    port_zmq_cmd: int = 8856
+    port_zmq_observations: int = 8855
+    port_zmq_rpc: int = 8857
+    port_zmq_cameras: int = 8866
+    robot_id: int = 0
+    source_id: str = "mac_xlerobot_client"
+    command_lease_ms: int = 300
+    follower_calibration_path: str | None = None
+
+    teleop_keys: dict[str, str] = field(
+        default_factory=lambda: {
+            # Movement
+            "forward": "i",
+            "backward": "k",
+            "left": "j",
+            "right": "l",
+            "rotate_left": "u",
+            "rotate_right": "o",
+            # Speed control
+            "speed_up": "n",
+            "speed_down": "m",
+            # quit teleop
+            "quit": "b",
+        }
+    )
+
+    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_cameras_config)
+
+    polling_timeout_ms: int = 15
+    connect_timeout_s: int = 5

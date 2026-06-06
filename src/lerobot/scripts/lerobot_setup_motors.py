@@ -36,6 +36,7 @@ from lerobot.robots import (  # noqa: F401
     make_robot_from_config,
     omx_follower,
     so_follower,
+    xlerobot,
 )
 from lerobot.teleoperators import (  # noqa: F401
     TeleoperatorConfig,
@@ -45,6 +46,7 @@ from lerobot.teleoperators import (  # noqa: F401
     omx_leader,
     openarm_mini,
     so_leader,
+    xlerobot_vr,
 )
 
 COMPATIBLE_DEVICES = [
@@ -58,6 +60,7 @@ COMPATIBLE_DEVICES = [
     "so101_follower",
     "so101_leader",
     "lekiwi",
+    "xlerobot",
 ]
 
 

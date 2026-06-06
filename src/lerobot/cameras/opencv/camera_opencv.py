@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import platform
+import subprocess
 import time
 from pathlib import Path
 from threading import Event, Lock, Thread
@@ -155,6 +156,8 @@ class OpenCVCamera(Camera):
         # blocking in multi-threaded applications, especially during data collection.
         cv2.setNumThreads(1)
 
+        self._apply_uvc_controls()
+
         self.videocapture = cv2.VideoCapture(self.index_or_path, self.backend)
 
         if not self.videocapture.isOpened():
@@ -177,6 +180,27 @@ class OpenCVCamera(Camera):
                     raise ConnectionError(f"{self} failed to capture frames during warmup.")
 
         logger.info(f"{self} connected.")
+
+    def _apply_uvc_controls(self) -> None:
+        if not self.config.uvc_controls or platform.system() != "Linux":
+            return
+
+        if not isinstance(self.index_or_path, (str, Path)):
+            logger.warning(f"{self} uvc_controls require a Linux device path, got {self.index_or_path!r}.")
+            return
+
+        controls = ",".join(f"{key}={value}" for key, value in self.config.uvc_controls.items())
+        try:
+            subprocess.run(
+                ["v4l2-ctl", f"--device={os.fspath(self.index_or_path)}", f"--set-ctrl={controls}"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            logger.warning(f"{self} could not apply uvc_controls because v4l2-ctl is not installed.")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"{self} failed to apply uvc_controls={controls}: {e.stderr.strip()}")
 
     @check_if_not_connected
     def _configure_capture_settings(self) -> None:

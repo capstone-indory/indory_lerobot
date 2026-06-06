@@ -82,6 +82,7 @@ from lerobot.robots import (  # noqa: F401
     reachy2,
     so_follower,
     unitree_g1 as unitree_g1_robot,
+    xlerobot,
 )
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
@@ -100,6 +101,8 @@ from lerobot.teleoperators import (  # noqa: F401
     so_leader,
     unitree_g1,
 )
+from lerobot.teleoperators.keyboard.configuration_keyboard import KeyboardTeleopConfig
+from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import init_logging, move_cursor_up
@@ -124,8 +127,107 @@ class TeleoperateConfig:
     display_compressed_images: bool = False
 
 
+def _maybe_add_keyboard_teleop(robot: Robot, teleop: Teleoperator) -> Teleoperator | list[Teleoperator]:
+    if (
+        robot.name != "xlerobot_client"
+        or isinstance(teleop, KeyboardTeleop)
+        or not isinstance(
+            teleop,
+            (
+                so_leader.SO100Leader,
+                so_leader.SO101Leader,
+                bi_so_leader.BiSOLeader,
+                koch_leader.KochLeader,
+                omx_leader.OmxLeader,
+            ),
+        )
+    ):
+        return teleop
+    return [teleop, KeyboardTeleop(KeyboardTeleopConfig(id="keyboard"))]
+
+
+def _connect_one_teleop(device: Teleoperator, *, calibrate: bool) -> None:
+    if isinstance(device, KeyboardTeleop):
+        device.connect()
+    else:
+        device.connect(calibrate=calibrate)
+
+
+def _connect_teleop(teleop: Teleoperator | list[Teleoperator], *, calibrate: bool = True) -> None:
+    if isinstance(teleop, list):
+        for device in teleop:
+            _connect_one_teleop(device, calibrate=calibrate)
+    else:
+        _connect_one_teleop(teleop, calibrate=calibrate)
+
+
+def _disconnect_teleop(teleop: Teleoperator | list[Teleoperator]) -> None:
+    if isinstance(teleop, list):
+        for device in teleop:
+            if device.is_connected:
+                device.disconnect()
+    elif teleop.is_connected:
+        teleop.disconnect()
+
+
+def _split_multi_teleop(robot: Robot, teleop: Teleoperator | list[Teleoperator]):
+    if not isinstance(teleop, list):
+        return None, None
+    teleop_keyboard = next((t for t in teleop if isinstance(t, KeyboardTeleop)), None)
+    teleop_arm = next(
+        (
+            t
+            for t in teleop
+            if isinstance(
+                t,
+                (
+                    so_leader.SO100Leader,
+                    so_leader.SO101Leader,
+                    bi_so_leader.BiSOLeader,
+                    koch_leader.KochLeader,
+                    omx_leader.OmxLeader,
+                ),
+            )
+        ),
+        None,
+    )
+    if not (
+        teleop_arm
+        and teleop_keyboard
+        and len(teleop) == 2
+        and robot.name in {"lekiwi_client", "xlerobot_client"}
+    ):
+        raise ValueError(
+            "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm "
+            "teleoperator. Currently supported for LeKiwi and XLerobot clients."
+        )
+    return teleop_arm, teleop_keyboard
+
+
+def _get_teleop_action(
+    teleop: Teleoperator | list[Teleoperator],
+    teleop_arm: Teleoperator | None,
+    teleop_keyboard: KeyboardTeleop | None,
+    robot: Robot,
+    obs: RobotObservation,
+) -> RobotAction:
+    if isinstance(teleop, list):
+        arm_action = teleop_arm.get_action()
+        arm_action = {f"arm_{k}": v for k, v in arm_action.items()}
+        keyboard_action = teleop_keyboard.get_action()
+        base_action = robot._from_keyboard_to_base_action(keyboard_action)
+        return {**arm_action, **base_action} if base_action else arm_action
+
+    if robot.name == "unitree_g1":
+        teleop.send_feedback(obs)
+    raw_action = teleop.get_action()
+    if isinstance(teleop, KeyboardTeleop) and hasattr(robot, "_from_keyboard_to_base_action"):
+        return robot._from_keyboard_to_base_action(raw_action)
+    return raw_action
+
+
 def teleop_loop(
-    teleop: Teleoperator,
+    teleop: Teleoperator | list[Teleoperator],
     robot: Robot,
     fps: int,
     teleop_action_processor: RobotProcessorPipeline[tuple[RobotAction, RobotObservation], RobotAction],
@@ -153,6 +255,7 @@ def teleop_loop(
     """
 
     display_len = max(len(key) for key in robot.action_features)
+    teleop_arm, teleop_keyboard = _split_multi_teleop(robot, teleop)
     start = time.perf_counter()
     while True:
         loop_start = time.perf_counter()
@@ -163,11 +266,8 @@ def teleop_loop(
         # given that it is the identity processor as default
         obs = robot.get_observation()
 
-        if robot.name == "unitree_g1":
-            teleop.send_feedback(obs)
-
         # Get teleop action
-        raw_action = teleop.get_action()
+        raw_action = _get_teleop_action(teleop, teleop_arm, teleop_keyboard, robot, obs)
 
         # Process teleop action through pipeline
         teleop_action = teleop_action_processor((raw_action, obs))
@@ -191,9 +291,12 @@ def teleop_loop(
             print("\n" + "-" * (display_len + 10))
             print(f"{'NAME':<{display_len}} | {'NORM':>7}")
             # Display the final robot action that was sent
+            displayed_actions = 0
             for motor, value in robot_action_to_send.items():
-                print(f"{motor:<{display_len}} | {value:>7.2f}")
-            move_cursor_up(len(robot_action_to_send) + 3)
+                if isinstance(value, float | int):
+                    print(f"{motor:<{display_len}} | {value:>7.2f}")
+                    displayed_actions += 1
+            move_cursor_up(displayed_actions + 3)
 
         dt_s = time.perf_counter() - loop_start
         precise_sleep(max(1 / fps - dt_s, 0.0))
@@ -219,9 +322,10 @@ def teleoperate(cfg: TeleoperateConfig):
 
     teleop = make_teleoperator_from_config(cfg.teleop)
     robot = make_robot_from_config(cfg.robot)
+    teleop = _maybe_add_keyboard_teleop(robot, teleop)
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
-    teleop.connect()
+    _connect_teleop(teleop, calibrate=robot.name != "xlerobot_client")
     robot.connect()
 
     try:
@@ -241,7 +345,7 @@ def teleoperate(cfg: TeleoperateConfig):
     finally:
         if cfg.display_data:
             rr.rerun_shutdown()
-        teleop.disconnect()
+        _disconnect_teleop(teleop)
         robot.disconnect()
 
 

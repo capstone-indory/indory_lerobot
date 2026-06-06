@@ -45,6 +45,7 @@ from lerobot.robots import (  # noqa: F401
     omx_follower,
     openarm_follower,
     so_follower,
+    xlerobot,
 )
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
@@ -59,6 +60,7 @@ from lerobot.teleoperators import (  # noqa: F401
     openarm_mini,
     so_leader,
     unitree_g1,
+    xlerobot_vr,
 )
 from lerobot.utils.import_utils import register_third_party_plugins
 from lerobot.utils.utils import init_logging

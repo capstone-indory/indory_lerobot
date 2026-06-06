@@ -114,6 +114,7 @@ from lerobot.robots import (  # noqa: F401
     reachy2,
     so_follower,
     unitree_g1 as unitree_g1_robot,
+    xlerobot,
 )
 from lerobot.teleoperators import (  # noqa: F401
     Teleoperator,
@@ -131,6 +132,7 @@ from lerobot.teleoperators import (  # noqa: F401
     unitree_g1,
 )
 from lerobot.teleoperators.keyboard.teleop_keyboard import KeyboardTeleop
+from lerobot.teleoperators.keyboard.configuration_keyboard import KeyboardTeleopConfig
 from lerobot.utils.constants import ACTION, OBS_STR
 from lerobot.utils.control_utils import (
     init_keyboard_listener,
@@ -246,6 +248,50 @@ class RecordConfig:
         return ["policy"]
 
 
+def _maybe_add_keyboard_teleop(robot: Robot, teleop: Teleoperator | None) -> Teleoperator | list[Teleoperator] | None:
+    if (
+        robot.name != "xlerobot_client"
+        or teleop is None
+        or isinstance(teleop, KeyboardTeleop)
+        or not isinstance(
+            teleop,
+            (
+                so_leader.SO100Leader,
+                so_leader.SO101Leader,
+                bi_so_leader.BiSOLeader,
+                koch_leader.KochLeader,
+                omx_leader.OmxLeader,
+            ),
+        )
+    ):
+        return teleop
+    return [teleop, KeyboardTeleop(KeyboardTeleopConfig(id="keyboard"))]
+
+
+def _connect_one_teleop(device: Teleoperator, *, calibrate: bool) -> None:
+    if isinstance(device, KeyboardTeleop):
+        device.connect()
+    else:
+        device.connect(calibrate=calibrate)
+
+
+def _connect_teleop(teleop: Teleoperator | list[Teleoperator] | None, *, calibrate: bool = True) -> None:
+    if isinstance(teleop, list):
+        for device in teleop:
+            _connect_one_teleop(device, calibrate=calibrate)
+    elif teleop is not None:
+        _connect_one_teleop(teleop, calibrate=calibrate)
+
+
+def _disconnect_teleop(teleop: Teleoperator | list[Teleoperator] | None) -> None:
+    if isinstance(teleop, list):
+        for device in teleop:
+            if device.is_connected:
+                device.disconnect()
+    elif teleop is not None and teleop.is_connected:
+        teleop.disconnect()
+
+
 """ --------------- record_loop() data flow --------------------------
        [ Robot ]
            V
@@ -315,17 +361,24 @@ def record_loop(
                     (
                         so_leader.SO100Leader
                         | so_leader.SO101Leader
+                        | bi_so_leader.BiSOLeader
                         | koch_leader.KochLeader
                         | omx_leader.OmxLeader
-                    ),
+                    )
                 )
             ),
             None,
         )
 
-        if not (teleop_arm and teleop_keyboard and len(teleop) == 2 and robot.name == "lekiwi_client"):
+        if not (
+            teleop_arm
+            and teleop_keyboard
+            and len(teleop) == 2
+            and robot.name in {"lekiwi_client", "xlerobot_client"}
+        ):
             raise ValueError(
-                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm teleoperator. Currently only supported for LeKiwi robot."
+                "For multi-teleop, the list must contain exactly one KeyboardTeleop and one arm "
+                "teleoperator. Currently supported for LeKiwi and XLerobot clients."
             )
 
     # Reset policy and processor if they are provided
@@ -372,6 +425,8 @@ def record_loop(
             if robot.name == "unitree_g1":
                 teleop.send_feedback(obs)
             act = teleop.get_action()
+            if isinstance(teleop, KeyboardTeleop) and hasattr(robot, "_from_keyboard_to_base_action"):
+                act = robot._from_keyboard_to_base_action(act)
 
             # Applies a pipeline to the raw teleop action, default is IdentityProcessor
             act_processed_teleop = teleop_action_processor((act, obs))
@@ -409,7 +464,7 @@ def record_loop(
 
         # Write to dataset
         if dataset is not None:
-            action_frame = build_dataset_frame(dataset.features, action_values, prefix=ACTION)
+            action_frame = build_dataset_frame(dataset.features, _sent_action, prefix=ACTION)
             frame = {**observation_frame, **action_frame, "task": single_task}
             dataset.add_frame(frame)
 
@@ -445,6 +500,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
     robot = make_robot_from_config(cfg.robot)
     teleop = make_teleoperator_from_config(cfg.teleop) if cfg.teleop is not None else None
+    teleop = _maybe_add_keyboard_teleop(robot, teleop)
 
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
@@ -519,8 +575,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             )
 
         robot.connect()
-        if teleop is not None:
-            teleop.connect()
+        _connect_teleop(teleop, calibrate=robot.name != "xlerobot_client")
 
         listener, events = init_keyboard_listener()
 
@@ -588,8 +643,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
 
         if robot.is_connected:
             robot.disconnect()
-        if teleop and teleop.is_connected:
-            teleop.disconnect()
+        _disconnect_teleop(teleop)
 
         if not is_headless() and listener:
             listener.stop()
