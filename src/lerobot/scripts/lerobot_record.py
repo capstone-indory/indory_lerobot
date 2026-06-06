@@ -575,7 +575,7 @@ def record(cfg: RecordConfig) -> LeRobotDataset:
             )
 
         robot.connect()
-        _connect_teleop(teleop, calibrate=robot.name != "xlerobot_client")
+        _connect_teleop(teleop, calibrate=True)
 
         listener, events = init_keyboard_listener()
 

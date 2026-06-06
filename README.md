@@ -1,184 +1,312 @@
-<p align="center">
-  <img alt="LeRobot, Hugging Face Robotics Library" src="./media/readme/lerobot-logo-thumbnail.png" width="100%">
-</p>
+# indory_lerobot
 
-<div align="center">
+LeRobot companion fork for the Indoory XLeRobot ZMQ stack.
 
-[![Tests](https://github.com/huggingface/lerobot/actions/workflows/nightly.yml/badge.svg?branch=main)](https://github.com/huggingface/lerobot/actions/workflows/nightly.yml?query=branch%3Amain)
-[![Python versions](https://img.shields.io/pypi/pyversions/lerobot)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/huggingface/lerobot/blob/main/LICENSE)
-[![Status](https://img.shields.io/pypi/status/lerobot)](https://pypi.org/project/lerobot/)
-[![Version](https://img.shields.io/pypi/v/lerobot)](https://pypi.org/project/lerobot/)
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.1-ff69b4.svg)](https://github.com/huggingface/lerobot/blob/main/CODE_OF_CONDUCT.md)
-[![Discord](https://img.shields.io/badge/Discord-Join_Us-5865F2?style=flat&logo=discord&logoColor=white)](https://discord.gg/q8Dzzpym3f)
+This repository is the Mac/Ubuntu-side LeRobot workspace. It does not replace
+the Raspberry Pi hardware server. The Pi must run `/home/pi/indory_zmq`, and
+this fork connects to that server with `robot.type=xlerobot_client`.
 
-</div>
+## What This Fork Does
 
-**LeRobot** aims to provide models, datasets, and tools for real-world robotics in PyTorch. The goal is to lower the barrier to entry so that everyone can contribute to and benefit from shared datasets and pretrained models.
+- Registers `robot.type=xlerobot_client`.
+- Connects to the Pi fast ZMQ state, command, RPC, and RGB camera ports.
+- Keeps robot hardware ownership on the Pi.
+- Lets Mac teleop combine local SO101/biSO101 leader arms with keyboard base
+  control.
+- Lets Mac active recording command the robot and save LeRobot datasets.
+- Provides a default Ubuntu training wrapper for datasets collected through this
+  path.
 
-## Indory ZMQ Deployment Status
+## What This Fork Does Not Do
 
-This fork contains an `xlerobot_client` path for controlling an external
-`indory_zmq` robot process through ZMQ ports. The XLerobot host path is a proxy:
-it connects to `indory_zmq` rather than opening robot hardware directly. See
-[INDORY_ZMQ_ROLES.md](INDORY_ZMQ_ROLES.md) for the Pi/Mac/Ubuntu role split,
-implemented paths, and missing work.
+- It does not open XLeRobot follower motor serial ports on the Mac or Ubuntu
+  host.
+- It does not own Pi camera, lidar, or RealSense devices.
+- It does not provide command authentication for `8856`.
+- It does not yet provide a passive observer-only recorder.
+- The included training wrapper is a default ACT recipe, not a final production
+  policy contract.
 
-🤗 A hardware-agnostic, Python-native interface that standardizes control across diverse platforms, from low-cost arms (SO-100) to humanoids.
+## Runtime Roles
 
-🤗 A standardized, scalable LeRobotDataset format (Parquet + MP4 or images) hosted on the Hugging Face Hub, enabling efficient storage, streaming and visualization of massive robotic datasets.
+| Machine | Role | Repository |
+| --- | --- | --- |
+| Raspberry Pi | Own motors, lidar, cameras, and live ZMQ ports | `/home/pi/indory_zmq` |
+| Mac | Teleop with leader arms and keyboard | this repo |
+| Mac | Active record while controlling the robot | this repo |
+| Ubuntu | Train on recorded datasets | this repo |
 
-🤗 State-of-the-art policies that have been shown to transfer to the real-world ready for training and deployment.
-
-🤗 Comprehensive support for the open-source ecosystem to democratize physical AI.
-
-## Quick Start
-
-LeRobot can be installed directly from PyPI.
-
-```bash
-pip install lerobot
-lerobot-info
-```
-
-> [!IMPORTANT]
-> For detailed installation guide, please see the [Installation Documentation](https://huggingface.co/docs/lerobot/installation).
-
-## Robots & Control
-
-<div align="center">
-  <img src="./media/readme/robots_control_video.webp" width="640px" alt="Reachy 2 Demo">
-</div>
-
-LeRobot provides a unified `Robot` class interface that decouples control logic from hardware specifics. It supports a wide range of robots and teleoperation devices.
-
-```python
-from lerobot.robots.myrobot import MyRobot
-
-# Connect to a robot
-robot = MyRobot(config=...)
-robot.connect()
-
-# Read observation and send action
-obs = robot.get_observation()
-action = model.select_action(obs)
-robot.send_action(action)
-```
-
-**Supported Hardware:** SO100, LeKiwi, Koch, HopeJR, OMX, EarthRover, Reachy2, Gamepads, Keyboards, Phones, OpenARM, Unitree G1.
-
-While these devices are natively integrated into the LeRobot codebase, the library is designed to be extensible. You can easily implement the Robot interface to utilize LeRobot's data collection, training, and visualization tools for your own custom robot.
-
-For detailed hardware setup guides, see the [Hardware Documentation](https://huggingface.co/docs/lerobot/integrate_hardware).
-
-## LeRobot Dataset
-
-To solve the data fragmentation problem in robotics, we utilize the **LeRobotDataset** format.
-
-- **Structure:** Synchronized MP4 videos (or images) for vision and Parquet files for state/action data.
-- **HF Hub Integration:** Explore thousands of robotics datasets on the [Hugging Face Hub](https://huggingface.co/lerobot).
-- **Tools:** Seamlessly delete episodes, split by indices/fractions, add/remove features, and merge multiple datasets.
-
-```python
-from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-# Load a dataset from the Hub
-dataset = LeRobotDataset("lerobot/aloha_mobile_cabinet")
-
-# Access data (automatically handles video decoding)
-episode_index=0
-print(f"{dataset[episode_index]['action'].shape=}\n")
-```
-
-Learn more about it in the [LeRobotDataset Documentation](https://huggingface.co/docs/lerobot/lerobot-dataset-v3)
-
-## SoTA Models
-
-LeRobot implements state-of-the-art policies in pure PyTorch, covering Imitation Learning, Reinforcement Learning, and Vision-Language-Action (VLA) models, with more coming soon. It also provides you with the tools to instrument and inspect your training process.
-
-<p align="center">
-  <img alt="Gr00t Architecture" src="./media/readme/VLA_architecture.jpg" width="640px">
-</p>
-
-Training a policy is as simple as running a script configuration:
+The Pi must be started first:
 
 ```bash
-lerobot-train \
-  --policy=act \
-  --dataset.repo_id=lerobot/aloha_mobile_cabinet
+cd /home/pi/indory_zmq
+./scripts/indory_live_stack.sh restart
+./scripts/indory_live_stack.sh status
 ```
 
-| Category                   | Models                                                                                                                                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Imitation Learning**     | [ACT](./docs/source/policy_act_README.md), [Diffusion](./docs/source/policy_diffusion_README.md), [VQ-BeT](./docs/source/policy_vqbet_README.md)                                                             |
-| **Reinforcement Learning** | [HIL-SERL](./docs/source/hilserl.mdx), [TDMPC](./docs/source/policy_tdmpc_README.md) & QC-FQL (coming soon)                                                                                                  |
-| **VLAs Models**            | [Pi0Fast](./docs/source/pi0fast.mdx), [Pi0.5](./docs/source/pi05.mdx), [GR00T N1.5](./docs/source/policy_groot_README.md), [SmolVLA](./docs/source/policy_smolvla_README.md), [XVLA](./docs/source/xvla.mdx) |
+## ZMQ Contract
 
-Similarly to the hardware, you can easily implement your own policy & leverage LeRobot's data collection, training, and visualization tools, and share your model to the HF Hub
+| Port | Direction | Purpose |
+| --- | --- | --- |
+| `8855` | Pi to clients | State topics: `proprio`, `joint_states`, `odom`, `tf.links`, `scan` |
+| `8856` | Clients to Pi | Command `PUSH/PULL` socket |
+| `8857` | Client to Pi | RPC: `health`, `calibration`, `command_status`, `topic_list` |
+| `8866` | Pi to clients | RGB topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0` |
+| `8867` | Pi to clients | Optional RGB-D stream |
 
-For detailed policy setup guides, see the [Policy Documentation](https://huggingface.co/docs/lerobot/bring_your_own_policies).
+Commands sent to `8856` are MessagePack dictionaries using
+`schema: xlerobot_v1.1`. Base commands use `frame: body` and
+`base_cmd_vel: [vx, vy, wz]`.
 
-## Inference & Evaluation
+## Key Files
 
-Evaluate your policies in simulation or on real hardware using the unified evaluation script. LeRobot supports standard benchmarks like **LIBERO**, **MetaWorld** and more to come.
+- `INDORY_ZMQ_ROLES.md`: detailed role split and known missing work.
+- `scripts/indory_mac_teleop.sh`: Mac teleop wrapper.
+- `scripts/indory_mac_record.sh`: Mac active recording wrapper.
+- `scripts/indory_ubuntu_train.sh`: default training wrapper.
+- `src/lerobot/robots/xlerobot/config_xlerobot.py`: `xlerobot_client`
+  configuration registration.
+- `src/lerobot/robots/xlerobot/xlerobot_client.py`: ZMQ robot client.
+- `src/lerobot/scripts/lerobot_teleoperate.py`: keyboard plus arm teleop merge.
+- `src/lerobot/scripts/lerobot_record.py`: active record loop integration.
+
+## Local Setup
+
+Use this checkout directly, or install it editable in the environment you use
+for LeRobot:
 
 ```bash
-# Evaluate a policy on the LIBERO benchmark
-lerobot-eval \
-  --policy.path=lerobot/pi0_libero_finetuned \
-  --env.type=libero \
-  --env.task=libero_object \
-  --eval.n_episodes=10
+cd /home/pi/indory_lerobot
+python -m pip install -e .
 ```
 
-Learn how to implement your own simulation environment or benchmark and distribute it from the HF Hub by following the [EnvHub Documentation](https://huggingface.co/docs/lerobot/envhub)
+The role scripts also export `PYTHONPATH="$repo_root/src:$PYTHONPATH"`, so they
+can run from the checkout even before a full editable install.
 
-## Resources
+Verify the Indory client is the one being imported:
 
-- **[Documentation](https://huggingface.co/docs/lerobot/index):** The complete guide to tutorials & API.
-- **[Chinese Tutorials: LeRobot+SO-ARM101中文教程-同济子豪兄](https://zihao-ai.feishu.cn/wiki/space/7589642043471924447)** Detailed doc for assembling, teleoperate, dataset, train, deploy. Verified by Seed Studio and 5 global hackathon players.
-- **[Discord](https://discord.gg/q8Dzzpym3f):** Join the `LeRobot` server to discuss with the community.
-- **[X](https://x.com/LeRobotHF):** Follow us on X to stay up-to-date with the latest developments.
-- **[Robot Learning Tutorial](https://huggingface.co/spaces/lerobot/robot-learning-tutorial):** A free, hands-on course to learn robot learning using LeRobot.
-
-## Citation
-
-If you use LeRobot in your project, please cite the GitHub repository to acknowledge the ongoing development and contributors:
-
-```bibtex
-@misc{cadene2024lerobot,
-    author = {Cadene, Remi and Alibert, Simon and Soare, Alexander and Gallouedec, Quentin and Zouitine, Adil and Palma, Steven and Kooijmans, Pepijn and Aractingi, Michel and Shukor, Mustafa and Aubakirova, Dana and Russi, Martino and Capuano, Francesco and Pascal, Caroline and Choghari, Jade and Moss, Jess and Wolf, Thomas},
-    title = {LeRobot: State-of-the-art Machine Learning for Real-World Robotics in Pytorch},
-    howpublished = "\url{https://github.com/huggingface/lerobot}",
-    year = {2024}
-}
+```bash
+cd /home/pi/indory_lerobot
+PYTHONPATH="$PWD/src:${PYTHONPATH:-}" python - <<'PY'
+import inspect
+from lerobot.robots.xlerobot import XLerobotClient
+print(inspect.getfile(XLerobotClient))
+PY
 ```
 
-If you are referencing our research or the academic paper, please also cite our ICLR publication:
+Expected path:
 
-<details>
-<summary><b>ICLR 2026 Paper</b></summary>
-
-```bibtex
-@inproceedings{cadenelerobot,
-  title={LeRobot: An Open-Source Library for End-to-End Robot Learning},
-  author={Cadene, Remi and Alibert, Simon and Capuano, Francesco and Aractingi, Michel and Zouitine, Adil and Kooijmans, Pepijn and Choghari, Jade and Russi, Martino and Pascal, Caroline and Palma, Steven and Shukor, Mustafa and Moss, Jess and Soare, Alexander and Aubakirova, Dana and Lhoest, Quentin and Gallou\'edec, Quentin and Wolf, Thomas},
-  booktitle={The Fourteenth International Conference on Learning Representations},
-  year={2026},
-  url={https://arxiv.org/abs/2602.22818}
-}
+```text
+/home/pi/indory_lerobot/src/lerobot/robots/xlerobot/xlerobot_client.py
 ```
 
-</details>
+## Mac Teleop
 
-## Contribute
+Teleop uses:
 
-We welcome contributions from everyone in the community! To get started, please read our [CONTRIBUTING.md](./CONTRIBUTING.md) guide. Whether you're adding a new feature, improving documentation, or fixing a bug, your help and feedback are invaluable. We're incredibly excited about the future of open-source robotics and can't wait to work with you on what's next—thank you for your support!
+- remote Pi follower through `xlerobot_client`
+- local `bi_so_leader` leader arms
+- local keyboard base control
 
-<p align="center">
-  <img alt="SO101 Video" src="./media/readme/so100_video.webp" width="640px">
-</p>
+Run:
 
-<div align="center">
-<sub>Built by the <a href="https://huggingface.co/lerobot">LeRobot</a> team at <a href="https://huggingface.co">Hugging Face</a> with ❤️</sub>
-</div>
+```bash
+cd /home/pi/indory_lerobot
+INDORY_ZMQ_HOST=<pi-ip> \
+INDORY_LEFT_LEADER_PORT=<left-leader-port> \
+INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
+./scripts/indory_mac_teleop.sh
+```
+
+Common optional variables:
+
+```bash
+INDORY_ROBOT_ID=indory_xlerobot
+INDORY_ZMQ_ROBOT_ID=0
+INDORY_ZMQ_SOURCE_ID=mac_xlerobot_teleop
+INDORY_ZMQ_SOURCE_ROLE=teleop
+INDORY_FPS=30
+INDORY_DISPLAY_DATA=true
+```
+
+Keyboard base controls:
+
+| Key | Motion |
+| --- | --- |
+| `i` | forward |
+| `k` | backward |
+| `j` | strafe left |
+| `l` | strafe right |
+| `u` | rotate left |
+| `o` | rotate right |
+| `n` | speed up |
+| `m` | speed down |
+
+The client sends arm targets and base velocity through the same robot object, so
+`indory_zmq` sees a single command source lease instead of competing clients.
+
+## Mac Active Recording
+
+This record path controls the robot while saving data. It is active recording,
+not passive observation.
+
+Run:
+
+```bash
+cd /home/pi/indory_lerobot
+INDORY_ZMQ_HOST=<pi-ip> \
+INDORY_LEFT_LEADER_PORT=<left-leader-port> \
+INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
+INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
+INDORY_TASK="<task description>" \
+./scripts/indory_mac_record.sh
+```
+
+Common optional variables:
+
+```bash
+INDORY_NUM_EPISODES=10
+INDORY_EPISODE_TIME_S=60
+INDORY_RESET_TIME_S=10
+INDORY_FPS=30
+INDORY_ZMQ_SOURCE_ID=mac_xlerobot_record
+INDORY_ZMQ_SOURCE_ROLE=record
+```
+
+The saved action is the action returned by `robot.send_action()`. That means the
+dataset records what this client attempted to send through the ZMQ command path.
+
+Do not use this script for shadow logging beside another controller. A passive
+observer recorder should subscribe to `8855`, `8866`, and optionally `8867` only
+and must not connect to `8856`; that tool is not implemented yet.
+
+## Ubuntu Training
+
+The training wrapper is a default ACT training entrypoint:
+
+```bash
+cd /home/pi/indory_lerobot
+INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
+./scripts/indory_ubuntu_train.sh
+```
+
+Optional variables:
+
+```bash
+INDORY_POLICY_TYPE=act
+INDORY_OUTPUT_DIR=outputs/train/indory_xlerobot_act
+INDORY_JOB_NAME=indory_xlerobot_act
+INDORY_BATCH_SIZE=8
+INDORY_TRAIN_STEPS=20000
+```
+
+Before treating a trained policy as production-ready, define and verify:
+
+- dataset feature schema
+- camera topic availability
+- state/action units
+- normalization and calibration assumptions
+- validation task and success gate
+
+## Observation And Action Shape
+
+`XLerobotClient` exposes state features for:
+
+```text
+left_arm_shoulder_pan
+left_arm_shoulder_lift
+left_arm_elbow_flex
+left_arm_wrist_flex
+left_arm_wrist_roll
+left_arm_gripper
+right_arm_shoulder_pan
+right_arm_shoulder_lift
+right_arm_elbow_flex
+right_arm_wrist_flex
+right_arm_wrist_roll
+right_arm_gripper
+head_motor_1
+head_motor_2
+x.vel
+y.vel
+theta.vel
+```
+
+Camera observations:
+
+```text
+head
+left_wrist
+right_wrist
+```
+
+The remote RGB topics are:
+
+```text
+rgb.front.<robot_id>
+rgb.wrist_left.<robot_id>
+rgb.wrist_right.<robot_id>
+```
+
+`xlerobot_client` decodes `jpeg` and `h264_fmp4` RGB payloads from `8866`.
+H.264/fMP4 payloads need the init bytes supplied by the camera stream.
+
+## Safety
+
+The command port `8856` is unauthenticated. Only run teleop and active recording
+on a trusted network, private tunnel, or firewall-restricted path.
+
+Always verify:
+
+- the Pi stack is healthy before teleop
+- leader arm ports are correct
+- camera feeds are side-specific
+- no other command client is driving the robot
+- there is a reachable physical stop or power procedure
+
+## Troubleshooting
+
+`xlerobot_client` cannot connect:
+
+```bash
+cd /home/pi/indory_zmq
+./tools/fast_robot_client.py --host <pi-ip> health
+./tools/fast_robot_client.py --host <pi-ip> topics
+```
+
+No images in display or dataset:
+
+- Confirm the Pi publishes RGB on `8866`, not `8855`.
+- Confirm topics are `rgb.front.0`, `rgb.wrist_left.0`, and
+  `rgb.wrist_right.0`.
+- Confirm PyAV is installed if the stream uses `h264_fmp4`.
+
+Wrong LeRobot import:
+
+```bash
+cd /home/pi/indory_lerobot
+PYTHONPATH="$PWD/src:${PYTHONPATH:-}" python - <<'PY'
+import inspect
+from lerobot.robots.xlerobot import XLerobotClient
+print(inspect.getfile(XLerobotClient))
+PY
+```
+
+Leader arm not found:
+
+- Run `lerobot-find-port` on the Mac.
+- Use the discovered ports for `INDORY_LEFT_LEADER_PORT` and
+  `INDORY_RIGHT_LEADER_PORT`.
+
+Record accidentally moves the robot:
+
+- That is expected for `indory_mac_record.sh`; it is active recording.
+- Use or implement a passive observer-only recorder for non-commanding logs.
+
+## Upstream LeRobot
+
+This fork is based on Hugging Face LeRobot. General documentation remains useful
+for datasets, policies, processors, and training concepts:
+
+- https://huggingface.co/docs/lerobot
+- https://github.com/huggingface/lerobot

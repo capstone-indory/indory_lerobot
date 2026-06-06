@@ -1,7 +1,4 @@
-# To Run on the host
-'''
-PYTHONPATH=src python -m lerobot.robots.xlerobot.xlerobot_host --robot.id=my_xlerobot
-'''
+# Start indory_zmq on the robot before running remote teleop clients.
 
 # To Run the teleop:
 '''

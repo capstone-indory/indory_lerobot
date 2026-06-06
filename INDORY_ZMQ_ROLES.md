@@ -10,7 +10,7 @@ must use the ZMQ interface exposed by that process.
 
 | Machine | Role | Expected behavior |
 | --- | --- | --- |
-| Raspberry Pi | Robot runtime | Run `indory_zmq` as the hardware owner, then optionally run the LeRobot proxy host from this repo. |
+| Raspberry Pi | Robot runtime | Run `indory_zmq` as the only robot hardware server. |
 | Mac | Teleop client | Use `xlerobot_client` to send commands to `indory_zmq`; use local leader arms and keyboard as input devices. |
 | Mac | Record client | Use LeRobot active record: read teleop input, call `send_action()`, and save observations/actions to a dataset. |
 | Ubuntu | Train host | Use standard `lerobot-train` against datasets collected from the Mac/robot setup. |
@@ -27,8 +27,8 @@ The client path uses the fast Indory ZMQ ports:
 | `8866` | Pi to clients | Optimized RGB camera topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0`. |
 
 Commands on `8856` are MessagePack dictionaries using schema
-`xlerobot_v1.1`. The client includes `source_id` and `source_role`, so teleop,
-record, and proxy clients can be distinguished by `indory_zmq`.
+`xlerobot_v1.1`. The client includes `source_id` and `source_role`, so teleop
+and record clients can be distinguished by `indory_zmq`.
 
 ## Implemented
 
@@ -37,9 +37,6 @@ record, and proxy clients can be distinguished by `indory_zmq`.
   `8866`, and it does not open local motor serial ports or local cameras.
 - `src/lerobot/robots/xlerobot/config_xlerobot.py` registers
   `robot.type=xlerobot_client`.
-- `src/lerobot/robots/xlerobot/xlerobot_host.py` is now an `indory_zmq` proxy.
-  It constructs `XLerobotClient`, reads observations through `8855`/`8866`,
-  and forwards commands to `8856` instead of opening robot hardware directly.
 - `lerobot-teleoperate` supports `xlerobot_client` plus a leader arm and
   automatically adds `KeyboardTeleop`, so arm joints and base keyboard commands
   can be sent together.
@@ -50,11 +47,9 @@ record, and proxy clients can be distinguished by `indory_zmq`.
 
 ## Role Commands
 
-Pi proxy host, after `indory_zmq` is already running:
-
-```bash
-INDORY_ZMQ_HOST=127.0.0.1 ./scripts/indory_pi_robot_server.sh
-```
+There is no LeRobot-side robot server in this architecture. Start
+`indory_zmq` on the Pi first, then run Mac and Ubuntu clients against its ZMQ
+ports.
 
 Mac teleop client:
 

@@ -26,6 +26,13 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from ..robot import Robot
 from .config_xlerobot import XLerobotClientConfig
+from .xlerobot_keyboard_control import (
+    action_from_pressed_keys,
+    arm_recenter_offsets,
+    bounded_raw_target,
+    head_relative_target_from_action,
+)
+from .xlerobot_leader_kinematics import LeaderKinematicMapper, cap_raw_targets_to_current
 
 
 SCHEMA_VERSION = "xlerobot_v1.1"
@@ -46,14 +53,7 @@ RIGHT_MOTORS = (
     "right_arm_gripper",
 )
 HEAD_MOTORS = ("head_motor_1", "head_motor_2")
-SHORT_TO_SUFFIX = {
-    "shoulder_pan": "shoulder_pan",
-    "shoulder_lift": "shoulder_lift",
-    "elbow_flex": "elbow_flex",
-    "wrist_flex": "wrist_flex",
-    "wrist_roll": "wrist_roll",
-    "gripper": "gripper",
-}
+CANONICAL_MOTORS = RIGHT_MOTORS + LEFT_MOTORS + HEAD_MOTORS
 LEGACY_CAMERA_TOPIC_TO_NAME = {
     "/xlerobot/head/rgb/image_raw": "head",
     "/xlerobot/wrist_left/rgb/image_raw": "left_wrist",
@@ -84,6 +84,7 @@ class XLerobotClient(Robot):
         self.polling_timeout_ms = config.polling_timeout_ms
         self.connect_timeout_s = config.connect_timeout_s
         self.command_lease_ms = int(config.command_lease_ms)
+        self.leader_action_units = config.leader_action_units
 
         self.zmq_context = None
         self.zmq_cmd_socket = None
@@ -103,6 +104,8 @@ class XLerobotClient(Robot):
             **LEGACY_CAMERA_TOPIC_TO_NAME,
         }
         self.follower_calibration = self._load_follower_calibration(config.follower_calibration_path)
+        self.leader_mapper = LeaderKinematicMapper(self.follower_calibration, self.leader_action_units)
+        self.arm_target_offsets = dict.fromkeys((*LEFT_MOTORS, *RIGHT_MOTORS), 0.0)
         self.logs = {}
 
         self.speed_levels = [
@@ -185,32 +188,30 @@ class XLerobotClient(Robot):
         return obs_dict
 
     def _from_keyboard_to_base_action(self, pressed_keys: np.ndarray):
-        if self.teleop_keys["speed_up"] in pressed_keys:
-            self.speed_index = min(self.speed_index + 1, len(self.speed_levels) - 1)
-        if self.teleop_keys["speed_down"] in pressed_keys:
-            self.speed_index = max(self.speed_index - 1, 0)
-        speed = self.speed_levels[self.speed_index]
-        x_cmd = y_cmd = theta_cmd = 0.0
-        if self.teleop_keys["forward"] in pressed_keys:
-            x_cmd += speed["xy"]
-        if self.teleop_keys["backward"] in pressed_keys:
-            x_cmd -= speed["xy"]
-        if self.teleop_keys["left"] in pressed_keys:
-            y_cmd += speed["xy"]
-        if self.teleop_keys["right"] in pressed_keys:
-            y_cmd -= speed["xy"]
-        if self.teleop_keys["rotate_left"] in pressed_keys:
-            theta_cmd += speed["theta"]
-        if self.teleop_keys["rotate_right"] in pressed_keys:
-            theta_cmd -= speed["theta"]
-        return {"x.vel": x_cmd, "y.vel": y_cmd, "theta.vel": theta_cmd}
+        action, self.speed_index = action_from_pressed_keys(
+            pressed_keys,
+            self.teleop_keys,
+            self.speed_levels,
+            self.speed_index,
+            self.config.head_step_rad,
+            self.config.head_pan_sign,
+            self.config.head_tilt_sign,
+        )
+        return action
 
     def send_action(self, action: dict[str, Any]) -> dict[str, Any]:
         if not self._is_connected or self.zmq_cmd_socket is None:
             raise DeviceNotConnectedError("XLerobotClient is not connected.")
         action = dict(action)
+        if action.get("arm.recenter"):
+            self.arm_target_offsets.update(
+                arm_recenter_offsets(
+                    action, self._current_canonical_ticks(), self.leader_mapper, LEFT_MOTORS, RIGHT_MOTORS
+                )
+            )
         base_cmd = self._base_cmd_from_action(action)
         joint_targets = self._joint_targets_from_action(action)
+        head_target = head_relative_target_from_action(action, self.latest_topics, self.robot_id)
         payload: dict[str, Any] = {
             "schema": SCHEMA_VERSION,
             "source_id": self.source_id,
@@ -223,9 +224,21 @@ class XLerobotClient(Robot):
         if base_cmd is not None:
             payload["base_cmd_vel"] = base_cmd
         if joint_targets is not None:
-            payload["joint_targets_sparse"] = joint_targets
+            canonical_targets = self._canonical_targets_from_ros_sparse(joint_targets)
+            if canonical_targets is None:
+                payload["joint_targets_sparse"] = joint_targets
+            else:
+                payload["arm_joint_pos_target"] = canonical_targets
+                payload["arm_joint_pos_target_units"] = "feetech_ticks"
+        if head_target is not None:
+            payload["head_joint_relative_target"] = head_target
         self._seq += 1
-        if "base_cmd_vel" in payload or "joint_targets_sparse" in payload:
+        if (
+            "base_cmd_vel" in payload
+            or "joint_targets_sparse" in payload
+            or "arm_joint_pos_target" in payload
+            or "head_joint_relative_target" in payload
+        ):
             self.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
         return self._sent_action_vector(base_cmd, joint_targets)
 
@@ -389,40 +402,52 @@ class XLerobotClient(Robot):
         self._fill_side_targets(action, targets, "right", RIGHT_MOTORS, 6)
         return targets if any(value is not None for value in targets) else None
 
+    def _canonical_targets_from_ros_sparse(self, targets: list[float | None]) -> list[float] | None:
+        current = self._current_canonical_ticks()
+        if current is None:
+            return None
+        canonical = list(current)
+        for idx, value in enumerate(targets[6:12]):
+            if value is not None:
+                canonical[idx] = float(value)
+        for idx, value in enumerate(targets[:6]):
+            if value is not None:
+                canonical[6 + idx] = float(value)
+        for idx, value in enumerate(targets[12:14], start=12):
+            if value is not None:
+                canonical[idx] = float(value)
+        return cap_raw_targets_to_current(
+            canonical,
+            current,
+            CANONICAL_MOTORS,
+            self.follower_calibration,
+            self.config.max_relative_target,
+            self.leader_action_units,
+        )
+
+    def _current_canonical_ticks(self) -> list[float] | None:
+        proprio = self.latest_topics.get(f"proprio.{self.robot_id}", {})
+        joint_pos = proprio.get("joint_pos") if isinstance(proprio, dict) else None
+        if not isinstance(joint_pos, list) or len(joint_pos) < 14:
+            return None
+        try:
+            values = [float(value) for value in joint_pos[:14]]
+        except (TypeError, ValueError):
+            return None
+        return values if all(math.isfinite(value) for value in values) else None
+
     def _fill_side_targets(
         self, action: dict[str, Any], targets: list[float | None], side: str, motors: tuple[str, ...], offset: int
     ) -> None:
-        for i, motor in enumerate(motors):
-            suffix = motor.removeprefix(f"{side}_arm_")
-            keys = (
-                f"{motor}.pos",
-                f"arm_{side}_{suffix}.pos",
-                f"{side}_{suffix}.pos",
-                f"arm_{suffix}.pos" if side == "right" else "",
-                f"{suffix}.pos" if side == "right" else "",
-            )
-            for key in keys:
-                if key and key in action:
-                    try:
-                        targets[offset + i] = self._to_raw_tick(motor, float(action[key]))
-                    except ValueError as exc:
-                        logging.warning("Dropping %s target from %s: %s", motor, key, exc)
-                    break
-
-    def _to_raw_tick(self, motor: str, value: float) -> float:
-        if value < -100.0 or value > 100.0:
-            return float(np.clip(value, 0.0, 4095.0))
-        cal = self.follower_calibration.get(motor)
-        if not cal:
-            logging.warning("No follower calibration for %s; dropping normalized target", motor)
-            raise ValueError(f"missing calibration for {motor}")
-        min_v, max_v = float(cal["range_min"]), float(cal["range_max"])
-        drive_mode = bool(cal.get("drive_mode", 0))
-        if motor.endswith("gripper"):
-            bounded = np.clip(100.0 - value if drive_mode else value, 0.0, 100.0)
-            return float((bounded / 100.0) * (max_v - min_v) + min_v)
-        bounded = np.clip(-value if drive_mode else value, -100.0, 100.0)
-        return float(((bounded + 100.0) / 200.0) * (max_v - min_v) + min_v)
+        try:
+            side_targets = self.leader_mapper.targets_for_side(action, side, motors)
+        except ValueError as exc:
+            logging.warning("Dropping %s arm targets: %s", side, exc)
+            return
+        for i, value in enumerate(side_targets):
+            if value is not None:
+                value += self.arm_target_offsets.get(motors[i], 0.0)
+                targets[offset + i] = bounded_raw_target(motors[i], value, self.follower_calibration.get(motors[i]))
 
     def _sent_action_vector(
         self, base_cmd: list[float] | None, joint_targets: list[float | None] | None
@@ -464,5 +489,5 @@ class XLerobotClient(Robot):
         if not isinstance(joints, dict):
             return
         for name, value in joints.items():
-            if isinstance(value, dict) and name not in self.follower_calibration:
+            if isinstance(value, dict):
                 self.follower_calibration[str(name)] = dict(value)

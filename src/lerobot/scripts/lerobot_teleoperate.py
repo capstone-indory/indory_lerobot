@@ -325,7 +325,7 @@ def teleoperate(cfg: TeleoperateConfig):
     teleop = _maybe_add_keyboard_teleop(robot, teleop)
     teleop_action_processor, robot_action_processor, robot_observation_processor = make_default_processors()
 
-    _connect_teleop(teleop, calibrate=robot.name != "xlerobot_client")
+    _connect_teleop(teleop, calibrate=True)
     robot.connect()
 
     try:

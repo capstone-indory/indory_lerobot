@@ -119,12 +119,12 @@ class XLerobotConfig(RobotConfig):
     teleop_keys: dict[str, str] = field(
         default_factory=lambda: {
             # Movement
-            "forward": "i",
-            "backward": "k",
-            "left": "j",
-            "right": "l",
-            "rotate_left": "u",
-            "rotate_right": "o",
+            "forward": "w",
+            "backward": "s",
+            "left": "a",
+            "right": "d",
+            "rotate_left": "q",
+            "rotate_right": "e",
             # Speed control
             "speed_up": "n",
             "speed_down": "m",
@@ -132,23 +132,6 @@ class XLerobotConfig(RobotConfig):
             "quit": "b",
         }
     )
-
-
-
-@dataclass
-class XLerobotHostConfig:
-    # Network Configuration
-    port_zmq_cmd: int = 5555
-    port_zmq_observations: int = 5556
-
-    # Duration of the application
-    connection_time_s: int = 3600
-
-    # Watchdog: stop the robot if no command is received for over 0.5 seconds.
-    watchdog_timeout_ms: int = 500
-
-    # If robot jitters decrease the frequency and monitor cpu load with `top` in cmd
-    max_loop_freq_hz: int = 30
 
 @RobotConfig.register_subclass("xlerobot_client")
 @dataclass
@@ -164,16 +147,28 @@ class XLerobotClientConfig(RobotConfig):
     source_role: str = "teleop"
     command_lease_ms: int = 300
     follower_calibration_path: str | None = None
+    leader_action_units: str = "degrees"
+    max_relative_target: float | dict[str, float] | None = 10.0
+    head_step_rad: float = 0.025
+    head_pan_sign: float = -1.0
+    head_tilt_sign: float = -1.0
 
     teleop_keys: dict[str, str] = field(
         default_factory=lambda: {
             # Movement
-            "forward": "i",
-            "backward": "k",
-            "left": "j",
-            "right": "l",
-            "rotate_left": "u",
-            "rotate_right": "o",
+            "forward": "w",
+            "backward": "s",
+            "left": "a",
+            "right": "d",
+            "rotate_left": "q",
+            "rotate_right": "e",
+            # Head camera
+            "head_up": "i",
+            "head_down": "k",
+            "head_left": "j",
+            "head_right": "l",
+            "head_recenter": "h",
+            "arm_recenter": "r",
             # Speed control
             "speed_up": "n",
             "speed_down": "m",
