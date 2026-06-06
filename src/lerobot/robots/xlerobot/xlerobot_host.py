@@ -17,14 +17,15 @@
 import base64
 import json
 import logging
+import math
 import os
 import time
 
 import cv2
 import zmq
 
-from .xlerobot import XLerobot
-from .config_xlerobot import XLerobotConfig, XLerobotHostConfig
+from .config_xlerobot import XLerobotClientConfig, XLerobotHostConfig
+from .xlerobot_client import XLerobotClient
 
 
 WEB_LINEAR_SPEED_MPS = float(os.getenv("XLEROBOT_WEB_LINEAR_SPEED_MPS", "0.2"))
@@ -111,9 +112,9 @@ def _web_move_to_action(direction: str, speed: object) -> dict[str, float]:
     elif direction == "right":
         action["y.vel"] = -WEB_STRAFE_SPEED_MPS * clamped_speed
     elif direction == "rotate_left":
-        action["theta.vel"] = WEB_YAW_SPEED_DEGPS * clamped_speed
+        action["theta.vel"] = math.radians(WEB_YAW_SPEED_DEGPS) * clamped_speed
     elif direction == "rotate_right":
-        action["theta.vel"] = -WEB_YAW_SPEED_DEGPS * clamped_speed
+        action["theta.vel"] = -math.radians(WEB_YAW_SPEED_DEGPS) * clamped_speed
     elif direction in ("stop", None):
         pass
     else:
@@ -165,7 +166,7 @@ def _video_response_from_observation(observation: dict, camera_shapes: dict[str,
     return None
 
 
-def _encode_camera_observations(robot: XLerobot, observation: dict) -> dict[str, tuple[int, int]]:
+def _encode_camera_observations(robot: XLerobotClient, observation: dict) -> dict[str, tuple[int, int]]:
     camera_shapes = {}
     for cam_key, _ in robot.cameras.items():
         frame = observation[cam_key]
@@ -176,7 +177,11 @@ def _encode_camera_observations(robot: XLerobot, observation: dict) -> dict[str,
     return camera_shapes
 
 
-def _handle_web_control_command(host: XLerobotHost, robot: XLerobot, message: dict) -> bool:
+def _stop_robot_base(robot: XLerobotClient) -> None:
+    robot.send_action({"x.vel": 0.0, "y.vel": 0.0, "theta.vel": 0.0})
+
+
+def _handle_web_control_command(host: XLerobotHost, robot: XLerobotClient, message: dict) -> bool:
     command = message.get("command")
     data = message.get("data") or {}
 
@@ -190,11 +195,11 @@ def _handle_web_control_command(host: XLerobotHost, robot: XLerobot, message: di
         return True
 
     if command == "stop":
-        robot.stop_base()
+        _stop_robot_base(robot)
         return True
 
     if command == "reset":
-        robot.stop_base()
+        _stop_robot_base(robot)
         _send_payload(host, _response("success", {"message": "Base stopped"}))
         return True
 
@@ -210,20 +215,21 @@ def _handle_web_control_command(host: XLerobotHost, robot: XLerobot, message: di
 
 
 def main():
-    logging.info("Configuring Xlerobot")
-    robot_config = XLerobotConfig(id="my_xlerobot_pc")
-    robot = XLerobot(robot_config)
-    right_arm_only = os.getenv("XLEROBOT_RIGHT_ARM_ONLY", "0").lower() in ("1", "true", "yes", "on")
-    if right_arm_only:
-        logging.warning("XLEROBOT_RIGHT_ARM_ONLY=1: bus2 will use right arm motors only; base 7/8/9 are disabled")
-        robot.bus2.motors = {name: motor for name, motor in robot.bus2.motors.items() if name.startswith("right_arm")}
-        robot.bus2.ids = [motor.id for motor in robot.bus2.motors.values()]
-        robot.bus2.models = [motor.model for motor in robot.bus2.motors.values()]
-        robot.bus2._id_to_name_dict = {motor.id: name for name, motor in robot.bus2.motors.items()}
-        robot.bus2._id_to_model_dict = {motor.id: motor.model for motor in robot.bus2.motors.values()}
-        robot.base_motors = []
+    logging.info("Configuring Xlerobot indory_zmq proxy")
+    robot_config = XLerobotClientConfig(
+        id=os.getenv("XLEROBOT_CLIENT_ID", "indory_xlerobot_proxy"),
+        remote_ip=os.getenv("INDORY_ZMQ_HOST", "127.0.0.1"),
+        port_zmq_cmd=int(os.getenv("INDORY_ZMQ_CMD_PORT", "8856")),
+        port_zmq_observations=int(os.getenv("INDORY_ZMQ_OBSERVATIONS_PORT", "8855")),
+        port_zmq_rpc=int(os.getenv("INDORY_ZMQ_RPC_PORT", "8857")),
+        port_zmq_cameras=int(os.getenv("INDORY_ZMQ_CAMERAS_PORT", "8866")),
+        robot_id=int(os.getenv("INDORY_ZMQ_ROBOT_ID", "0")),
+        source_id=os.getenv("INDORY_ZMQ_SOURCE_ID", "indory_lerobot_host"),
+        source_role=os.getenv("INDORY_ZMQ_SOURCE_ROLE", "proxy"),
+    )
+    robot = XLerobotClient(robot_config)
 
-    logging.info("Connecting Xlerobot")
+    logging.info("Connecting Xlerobot through indory_zmq")
     robot.connect()
 
     logging.info("Starting HostAgent")
@@ -266,7 +272,7 @@ def main():
                     f"Command not received for more than {host.watchdog_timeout_ms} milliseconds. Stopping the base."
                 )
                 watchdog_active = True
-                robot.stop_base()
+                _stop_robot_base(robot)
 
             last_observation = robot.get_observation()
             camera_shapes = _encode_camera_observations(robot, last_observation)
@@ -291,11 +297,11 @@ def main():
     except KeyboardInterrupt:
         print("Keyboard interrupt received. Exiting...")
     finally:
-        print("Shutting down Lekiwi Host.")
+        print("Shutting down XLerobot indory_zmq proxy host.")
         robot.disconnect()
         host.disconnect()
 
-    logging.info("Finished LeKiwi cleanly")
+    logging.info("Finished XLerobot indory_zmq proxy cleanly")
 
 
 if __name__ == "__main__":

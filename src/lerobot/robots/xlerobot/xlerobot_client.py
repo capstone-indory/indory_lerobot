@@ -79,6 +79,7 @@ class XLerobotClient(Robot):
         self.port_zmq_cameras = config.port_zmq_cameras
         self.robot_id = int(config.robot_id)
         self.source_id = config.source_id
+        self.source_role = config.source_role
         self.teleop_keys = config.teleop_keys
         self.polling_timeout_ms = config.polling_timeout_ms
         self.connect_timeout_s = config.connect_timeout_s
@@ -213,7 +214,7 @@ class XLerobotClient(Robot):
         payload: dict[str, Any] = {
             "schema": SCHEMA_VERSION,
             "source_id": self.source_id,
-            "source_role": "teleop",
+            "source_role": self.source_role,
             "seq": self._seq,
             "stamp_ns": time.time_ns(),
             "lease_ms": self.command_lease_ms,

@@ -16,6 +16,14 @@
 
 **LeRobot** aims to provide models, datasets, and tools for real-world robotics in PyTorch. The goal is to lower the barrier to entry so that everyone can contribute to and benefit from shared datasets and pretrained models.
 
+## Indory ZMQ Deployment Status
+
+This fork contains an `xlerobot_client` path for controlling an external
+`indory_zmq` robot process through ZMQ ports. The XLerobot host path is a proxy:
+it connects to `indory_zmq` rather than opening robot hardware directly. See
+[INDORY_ZMQ_ROLES.md](INDORY_ZMQ_ROLES.md) for the Pi/Mac/Ubuntu role split,
+implemented paths, and missing work.
+
 🤗 A hardware-agnostic, Python-native interface that standardizes control across diverse platforms, from low-cost arms (SO-100) to humanoids.
 
 🤗 A standardized, scalable LeRobotDataset format (Parquet + MP4 or images) hosted on the Hugging Face Hub, enabling efficient storage, streaming and visualization of massive robotic datasets.

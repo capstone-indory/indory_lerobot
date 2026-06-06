@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from lerobot.cameras.configs import CameraConfig, Cv2Rotation, ColorMode
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
 from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
+from lerobot.cameras.zmq.configuration_zmq import ZMQCameraConfig
 
 from ..config import RobotConfig
 
@@ -57,6 +58,43 @@ def xlerobot_cameras_config() -> dict[str, CameraConfig]:
             rotation=Cv2Rotation.ROTATE_180,
             warmup_s=2,
             fourcc="MJPG",
+        ),
+    }
+
+
+def xlerobot_client_cameras_config() -> dict[str, CameraConfig]:
+    """Remote camera feature definitions for the indory_zmq client path.
+
+    XLerobotClient reads images from the optimized indory_zmq camera socket
+    directly, so these configs provide LeRobot feature metadata only.
+    """
+    return {
+        "head": ZMQCameraConfig(
+            server_address="indory_zmq",
+            port=8866,
+            camera_name="rgb.front.0",
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
+        ),
+        "left_wrist": ZMQCameraConfig(
+            server_address="indory_zmq",
+            port=8866,
+            camera_name="rgb.wrist_left.0",
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
+        ),
+        "right_wrist": ZMQCameraConfig(
+            server_address="indory_zmq",
+            port=8866,
+            camera_name="rgb.wrist_right.0",
+            fps=30,
+            width=640,
+            height=480,
+            color_mode=ColorMode.BGR,
         ),
     }
 
@@ -123,6 +161,7 @@ class XLerobotClientConfig(RobotConfig):
     port_zmq_cameras: int = 8866
     robot_id: int = 0
     source_id: str = "mac_xlerobot_client"
+    source_role: str = "teleop"
     command_lease_ms: int = 300
     follower_calibration_path: str | None = None
 
@@ -143,7 +182,7 @@ class XLerobotClientConfig(RobotConfig):
         }
     )
 
-    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_cameras_config)
+    cameras: dict[str, CameraConfig] = field(default_factory=xlerobot_client_cameras_config)
 
     polling_timeout_ms: int = 15
     connect_timeout_s: int = 5
