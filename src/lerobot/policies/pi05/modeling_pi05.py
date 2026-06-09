@@ -77,6 +77,23 @@ def get_safe_dtype(target_dtype, device_type):
     return target_dtype
 
 
+def _filter_state_dict_for_compatible_shapes(
+    model: nn.Module,
+    state_dict: dict[str, torch.Tensor],
+) -> tuple[dict[str, torch.Tensor], list[tuple[str, tuple[int, ...], tuple[int, ...]]]]:
+    """Drop checkpoint tensors whose shape changed with a new robot embodiment."""
+    model_state = model.state_dict()
+    compatible: dict[str, torch.Tensor] = {}
+    skipped: list[tuple[str, tuple[int, ...], tuple[int, ...]]] = []
+    for key, value in state_dict.items():
+        target = model_state.get(key)
+        if target is not None and tuple(target.shape) != tuple(value.shape):
+            skipped.append((key, tuple(value.shape), tuple(target.shape)))
+            continue
+        compatible[key] = value
+    return compatible, skipped
+
+
 def create_sinusoidal_pos_embedding(  # see openpi `create_sinusoidal_pos_embedding` (exact copy)
     time: torch.Tensor, dimension: int, min_period: float, max_period: float, device="cpu"
 ) -> Tensor:
@@ -1020,8 +1037,31 @@ class PI05Policy(PreTrainedPolicy):
             if remap_count > 0:
                 print(f"Remapped {remap_count} state dict keys")
 
-            # Load the remapped state dict into the model
-            missing_keys, unexpected_keys = model.load_state_dict(remapped_state_dict, strict=strict)
+            remapped_state_dict, shape_skipped = _filter_state_dict_for_compatible_shapes(
+                model, remapped_state_dict
+            )
+            if shape_skipped:
+                print(
+                    "Skipped checkpoint tensors with incompatible XLerobot shapes: "
+                    f"{len(shape_skipped)} keys"
+                )
+                for key, checkpoint_shape, model_shape in shape_skipped[:10]:
+                    print(f"  - {key}: checkpoint{checkpoint_shape} -> model{model_shape}")
+                if len(shape_skipped) > 10:
+                    print(f"  ... and {len(shape_skipped) - 10} more")
+
+            # Load compatible tensors. If embodiment dimensions changed, use
+            # strict=False so the new state/action projection heads train from scratch.
+            effective_strict = strict and not shape_skipped
+            try:
+                missing_keys, unexpected_keys = model.load_state_dict(
+                    remapped_state_dict, strict=effective_strict
+                )
+            except RuntimeError as exc:
+                if not strict:
+                    raise
+                print(f"Strict checkpoint load failed, retrying with strict=False: {exc}")
+                missing_keys, unexpected_keys = model.load_state_dict(remapped_state_dict, strict=False)
 
             if missing_keys:
                 print(f"Missing keys when loading state dict: {len(missing_keys)} keys")

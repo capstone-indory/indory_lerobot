@@ -235,6 +235,10 @@ class GrootPackInputsStep(ProcessorStep):
     # Min-max normalization (SO100-like) applied BEFORE padding
     normalize_min_max: bool = True
     stats: dict[str, dict[str, Any]] | None = None
+    _stats_explicitly_provided: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._stats_explicitly_provided = self.stats is not None and bool(self.stats)
 
     def __call__(self, transition: EnvTransition) -> EnvTransition:
         obs = transition.get(TransitionKey.OBSERVATION, {}) or {}
@@ -419,6 +423,8 @@ class GrootPackInputsStep(ProcessorStep):
 
         This enables loading stats from safetensors files during from_pretrained.
         """
+        if self._stats_explicitly_provided and self.stats is not None:
+            return
         if not state:
             return
 
@@ -576,6 +582,10 @@ class GrootActionUnpackUnnormalizeStep(ProcessorStep):
     # Apply inverse of min-max normalization if it was used in preprocessor
     normalize_min_max: bool = True
     stats: dict[str, dict[str, Any]] | None = None
+    _stats_explicitly_provided: bool = field(default=False, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._stats_explicitly_provided = self.stats is not None and bool(self.stats)
 
     def __call__(self, transition: EnvTransition) -> EnvTransition:
         # Expect model outputs to be in TransitionKey.ACTION as (B, T, D_model)
@@ -653,6 +663,8 @@ class GrootActionUnpackUnnormalizeStep(ProcessorStep):
 
         This enables loading stats from safetensors files during from_pretrained.
         """
+        if self._stats_explicitly_provided and self.stats is not None:
+            return
         if not state:
             return
 

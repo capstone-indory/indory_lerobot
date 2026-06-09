@@ -205,7 +205,8 @@ class FlowmatchingActionHead(nn.Module):
             self.position_embedding = nn.Embedding(config.max_seq_len, self.input_embedding_dim)
             nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
 
-        self.beta_dist = Beta(config.noise_beta_alpha, config.noise_beta_beta)
+        self.noise_beta_alpha = float(config.noise_beta_alpha)
+        self.noise_beta_beta = float(config.noise_beta_beta)
         self.num_timestep_buckets = config.num_timestep_buckets
         self.config = config
         self.set_trainable_parameters(config.tune_projector, config.tune_diffusion_model)
@@ -250,7 +251,9 @@ class FlowmatchingActionHead(nn.Module):
                 self.model.eval()
 
     def sample_time(self, batch_size, device, dtype):
-        sample = self.beta_dist.sample([batch_size]).to(device, dtype=dtype)
+        alpha = torch.tensor(self.noise_beta_alpha, device=device, dtype=torch.float32)
+        beta = torch.tensor(self.noise_beta_beta, device=device, dtype=torch.float32)
+        sample = Beta(alpha, beta, validate_args=False).sample([batch_size]).to(dtype=dtype)
         return (self.config.noise_s - sample) / self.config.noise_s
 
     def prepare_input(self, batch: dict) -> BatchFeature:

@@ -77,6 +77,42 @@ def fetch_image(ele: dict[str, str | Image.Image]) -> Image.Image:
     return image
 
 
+def _flatten_tensors(value):
+    tensors = []
+
+    def collect(item):
+        if torch.is_tensor(item):
+            tensors.append(item)
+        elif isinstance(item, (list, tuple)):
+            for child in item:
+                collect(child)
+
+    collect(value)
+    return tensors
+
+
+def _normalize_image_processor_output(image_inputs):
+    pixel_values = image_inputs.get("pixel_values")
+    if pixel_values is not None and not torch.is_tensor(pixel_values):
+        tensors = _flatten_tensors(pixel_values)
+        if tensors:
+            if tensors[0].ndim == 3:
+                image_inputs["pixel_values"] = torch.stack(tensors, dim=0)
+            else:
+                image_inputs["pixel_values"] = torch.cat(tensors, dim=0)
+        else:
+            image_inputs["pixel_values"] = torch.as_tensor(pixel_values)
+
+    image_sizes = image_inputs.get("image_sizes")
+    if image_sizes is not None and not torch.is_tensor(image_sizes):
+        image_sizes = torch.as_tensor(image_sizes)
+        if image_sizes.ndim == 1:
+            image_sizes = image_sizes.unsqueeze(0)
+        image_inputs["image_sizes"] = image_sizes
+
+    return image_inputs
+
+
 class Eagle25VLProcessorKwargs(ProcessingKwargs, total=False):
     # see processing_utils.ProcessingKwargs documentation for usage.
     _defaults = {
@@ -191,6 +227,10 @@ class Eagle25VLProcessor(ProcessorMixin):
         video_use_thumbnail = output_kwargs["videos_kwargs"].get(
             "use_thumbnail", self.image_processor.use_thumbnail
         )
+        image_processor_kwargs = dict(output_kwargs["images_kwargs"])
+        video_processor_kwargs = dict(output_kwargs["videos_kwargs"])
+        image_processor_kwargs.setdefault("return_tensors", "pt")
+        video_processor_kwargs.setdefault("return_tensors", "pt")
 
         tile_size = self.image_processor.size.get("height", 448)
 
@@ -220,8 +260,9 @@ class Eagle25VLProcessor(ProcessorMixin):
                     image_inputs = self.image_processor(
                         images=[image_list[idx_in_list]],
                         videos=None,
-                        **output_kwargs["images_kwargs"],
+                        **image_processor_kwargs,
                     )
+                    image_inputs = _normalize_image_processor_output(image_inputs)
                     num_all_tiles = image_inputs["pixel_values"].shape[0]
                     special_placeholder = f"<image {idx_in_list + 1}>{self.image_start_token}{self.image_token * num_all_tiles * self.tokens_per_tile}{self.image_end_token}"
                     unified_frame_list.append(image_inputs)
@@ -231,8 +272,9 @@ class Eagle25VLProcessor(ProcessorMixin):
                     video_inputs = self.image_processor(
                         images=None,
                         videos=[video_list[idx_in_list]],
-                        **output_kwargs["videos_kwargs"],
+                        **video_processor_kwargs,
                     )
+                    video_inputs = _normalize_image_processor_output(video_inputs)
                     num_all_tiles = video_inputs["pixel_values"].shape[0]
                     image_sizes = video_inputs["image_sizes"]
                     if timestamps_list is not None and -1 not in timestamps_list:
@@ -405,7 +447,11 @@ class Eagle25VLProcessor(ProcessorMixin):
         """
         Get the number of tiles based on the image size.
         """
+        if torch.is_tensor(image_size):
+            image_size = image_size.tolist()
         orig_height, orig_width = image_size
+        orig_height = int(orig_height)
+        orig_width = int(orig_width)
         aspect_ratio = orig_width / orig_height
         # calculate the existing image aspect ratio
         target_ratios = {

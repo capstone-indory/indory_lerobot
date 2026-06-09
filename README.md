@@ -85,6 +85,23 @@ python -m pip install -e .
 The role scripts also export `PYTHONPATH="$repo_root/src:$PYTHONPATH"`, so they
 can run from the checkout even before a full editable install.
 
+For the Ubuntu NVIDIA training server, create the shared conda environment from
+the repo instead of relying on an ad hoc local environment:
+
+```bash
+conda env create -f environment.yml
+conda activate lerobot
+python -m pip install -U pip
+python -m pip install -e ".[pi]"
+python -m pip install --no-build-isolation "flash-attn==2.7.4.post1"
+python -m pip install -e ".[groot]"
+```
+
+`flash-attn` is installed after the conda environment is created because it must
+see the already-installed PyTorch/CUDA stack during build or wheel selection.
+The `groot` extra is intentionally not part of `.[all]` in upstream LeRobot, so
+install it explicitly before running `INDORY_POLICY_TYPE=groot`.
+
 Verify the Indory client is the one being imported:
 
 ```bash
@@ -108,7 +125,7 @@ Teleop uses:
 
 - remote Pi follower through `xlerobot_client`
 - local `bi_so_leader` leader arms
-- local keyboard base control
+- local keyboard base and head control
 
 Run:
 
@@ -129,20 +146,33 @@ INDORY_ZMQ_SOURCE_ID=mac_xlerobot_teleop
 INDORY_ZMQ_SOURCE_ROLE=teleop
 INDORY_FPS=15
 INDORY_DISPLAY_DATA=true
+INDORY_HEAD_STEP_RAD=0.05
+INDORY_HEAD_PAN_SIGN=1.0
+INDORY_HEAD_TILT_SIGN=1.0
 ```
 
 Keyboard base controls:
 
 | Key | Motion |
 | --- | --- |
-| `i` | forward |
-| `k` | backward |
-| `j` | strafe left |
-| `l` | strafe right |
-| `u` | rotate left |
-| `o` | rotate right |
+| `w` | forward |
+| `s` | backward |
+| `a` | strafe left |
+| `d` | strafe right |
+| `q` | rotate left |
+| `e` | rotate right |
 | `n` | speed up |
 | `m` | speed down |
+
+Keyboard head controls:
+
+| Key | Motion |
+| --- | --- |
+| `i` | tilt up |
+| `k` | tilt down |
+| `j` | pan left |
+| `l` | pan right |
+| `h` | recenter head |
 
 The client sends arm targets and base velocity through the same robot object, so
 `indory_zmq` sees a single command source lease instead of competing clients.
@@ -177,10 +207,16 @@ INDORY_STREAMING_ENCODING=false
 INDORY_DISPLAY_DATA=false
 INDORY_ZMQ_SOURCE_ID=mac_xlerobot_record
 INDORY_ZMQ_SOURCE_ROLE=record
+INDORY_HEAD_STEP_RAD=0.05
+INDORY_HEAD_PAN_SIGN=1.0
+INDORY_HEAD_TILT_SIGN=1.0
 ```
 
 The saved action is the action returned by `robot.send_action()`. That means the
 dataset records what this client attempted to send through the ZMQ command path.
+Head actions are stored as raw `head_motor_1` / `head_motor_2` tick targets:
+keyboard head moves are converted to target ticks, and frames without a head move
+record the current head ticks as hold targets.
 
 RGB camera packets from `8866` are archived during each episode and decoded into
 the LeRobot dataset at episode save time. This keeps teleop/record control
@@ -192,31 +228,164 @@ and must not connect to `8856`; that tool is not implemented yet.
 
 ## Ubuntu Training
 
-On an AI server, clone this repository, install it in the training environment,
-then run the training wrapper against a Hugging Face dataset repo:
+On an AI server, clone this repository, create the conda environment, then run
+the training wrapper against a Hugging Face dataset repo:
 
 ```bash
 git clone https://github.com/capstone-indory/indory_lerobot.git
 cd indory_lerobot
+conda env create -f environment.yml
+conda activate lerobot
 python -m pip install -U pip
-python -m pip install -e .[all]
+python -m pip install -e ".[pi]"
+python -m pip install --no-build-isolation "flash-attn==2.7.4.post1"
+python -m pip install -e ".[groot]"
 ```
 
-The training wrapper is a default ACT training entrypoint:
+The training wrapper defaults to a dual-arm SO-101 Pi0.5 fine-tuned prior and
+uses Hugging Face Accelerate automatically when multiple CUDA GPUs are visible:
 
 ```bash
 INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
 ./scripts/indory_ubuntu_train.sh
 ```
 
+On the 2-GPU 3090 / 3090 Ti server, the default launch is equivalent to a
+2-process bf16 DDP run with per-GPU batch size 1. Increase
+`INDORY_BATCH_SIZE` only after a short run confirms memory headroom.
+
 Optional variables:
 
 ```bash
-INDORY_POLICY_TYPE=act
-INDORY_OUTPUT_DIR=outputs/train/indory_xlerobot_act
-INDORY_JOB_NAME=indory_xlerobot_act
-INDORY_BATCH_SIZE=8
+INDORY_POLICY_TYPE=pi05
+INDORY_POLICY_PRESET=pi05_so101_fold_towel
+INDORY_POLICY_PRETRAINED_PATH=CoRL2026-CSI/pi05_teleop_fold_towel
+INDORY_POLICY_PATH=<exact-policy-checkpoint-config>
+INDORY_DATASET_ROOT=<local-patched-dataset-root>
+INDORY_OUTPUT_DIR=outputs/train/indory_xlerobot_pi05
+INDORY_JOB_NAME=indory_xlerobot_pi05
+INDORY_BATCH_SIZE=1
 INDORY_TRAIN_STEPS=20000
+INDORY_NUM_GPUS=2
+INDORY_USE_ACCELERATE=auto
+INDORY_MIXED_PRECISION=bf16
+INDORY_DATASET_VIDEO_BACKEND=pyav
+INDORY_TRAIN_EXPERT_ONLY=true
+INDORY_GRADIENT_CHECKPOINTING=true
+INDORY_POLICY_PUSH_TO_HUB=false
+INDORY_DRY_RUN=false
+```
+
+Use `INDORY_POLICY_PRETRAINED_PATH` for adaptation: the policy feature schema is
+rebuilt from the XLerobot dataset and compatible weights are loaded from the
+pretrained model. If a SO-101 checkpoint has a 12D state/action head but
+XLerobot needs 17D, matching backbone/action-expert tensors are reused and the
+changed state/action projection tensors are trained from scratch. Use
+`INDORY_POLICY_PATH` only when you intentionally want to load a saved policy
+config exactly as-is, for example resuming a previous XLerobot run.
+
+Pretrained model presets:
+
+```bash
+# SO-101 dual-arm Pi0.5 fine-tune, current default
+INDORY_POLICY_TYPE=pi05
+INDORY_POLICY_PRESET=pi05_so101_fold_towel
+
+# Pi0.5 base
+INDORY_POLICY_TYPE=pi05
+INDORY_POLICY_PRETRAINED_PATH=lerobot/pi05_base
+
+# Pi0 base
+INDORY_POLICY_TYPE=pi0
+INDORY_POLICY_PRETRAINED_PATH=lerobot/pi0_base
+
+# GR00T N1.5 base or SO-101 multi-task fine-tune
+INDORY_POLICY_TYPE=groot
+INDORY_POLICY_PRETRAINED_PATH=nvidia/GR00T-N1.5-3B
+INDORY_POLICY_PRESET=groot_so101_multitask
+```
+
+GR00T requires the `groot` extras and Flash Attention in the training
+environment. If `flash_attn` is not importable, start with Pi0.5 first or install
+the GR00T dependency stack before launching `INDORY_POLICY_TYPE=groot`.
+
+Before launching multi-GPU Pi0.5 training for the first time, pre-cache the
+policy assets in a single process. This avoids multiple DDP ranks competing for
+the same Hugging Face cache locks:
+
+```bash
+HF_HUB_DISABLE_XET=1 \
+python scripts/indory_precache_policy.py \
+  --policy-type pi05 \
+  --pretrained-path CoRL2026-CSI/pi05_teleop_fold_towel
+```
+
+You can also launch the recommended Pi0.5 SO-101-to-XLerobot run directly from
+Python. The launcher pre-caches assets by default, uses 2-GPU Accelerate DDP
+when both GPUs are visible, and enables W&B:
+
+```bash
+python -m wandb login
+python scripts/indory_train_pi05_so101.py \
+  --wandb-mode online
+```
+
+If `--wandb-mode online` is requested without a configured W&B API key, the
+launcher fails before loading the model. Use `--wandb-mode offline` to keep local
+W&B logs and sync later.
+
+For long runs, detach the launcher and watch the generated log:
+
+```bash
+python scripts/indory_train_pi05_so101.py \
+  --detach \
+  --wandb-mode offline \
+  --no-precache
+
+tail -f outputs/train/_logs/<run-log>.log
+```
+
+For a one-step smoke test without W&B upload:
+
+```bash
+python scripts/indory_train_pi05_so101.py \
+  --smoke \
+  --wandb-mode offline \
+  --no-precache
+```
+
+To inspect the exact command without starting model download or training:
+
+```bash
+INDORY_DRY_RUN=true \
+INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
+./scripts/indory_ubuntu_train.sh
+```
+
+Run preflight before a long job:
+
+```bash
+python scripts/indory_train_preflight.py \
+  --root data/indory_xlerobot_pick_delivery_head_patched \
+  --policy-type pi05 \
+  --scan-actions
+```
+
+For the old `hanbin5/indory_xlerobot_pick_delivery` recording, preflight should
+show nonzero patched head actions but zero base actions. That dataset is usable
+for arms/head adaptation, but not for learning base motion.
+
+For datasets recorded before head actions were stored in the action vector,
+create a local patched dataset root before training:
+
+```bash
+python scripts/indory_patch_head_actions.py \
+  --repo-id hanbin5/indory_xlerobot_pick_delivery \
+  --output-root data/indory_xlerobot_pick_delivery_head_patched
+
+INDORY_DATASET_REPO_ID=hanbin5/indory_xlerobot_pick_delivery \
+INDORY_DATASET_ROOT=data/indory_xlerobot_pick_delivery_head_patched \
+./scripts/indory_ubuntu_train.sh
 ```
 
 Before treating a trained policy as production-ready, define and verify:

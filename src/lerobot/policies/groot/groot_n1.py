@@ -39,7 +39,21 @@ else:
 try:
     import tree
 except ImportError:
-    tree = None
+    class _TreeFallback:
+        @staticmethod
+        def map_structure(fn, structure):
+            if isinstance(structure, dict):
+                mapped = {k: _TreeFallback.map_structure(fn, v) for k, v in structure.items()}
+                if BatchFeature is not None and isinstance(structure, BatchFeature):
+                    return BatchFeature(data=mapped)
+                return mapped
+            if isinstance(structure, list):
+                return [_TreeFallback.map_structure(fn, v) for v in structure]
+            if isinstance(structure, tuple):
+                return tuple(_TreeFallback.map_structure(fn, v) for v in structure)
+            return fn(structure)
+
+    tree = _TreeFallback()
 
 from lerobot.policies.groot.action_head.flow_matching_action_head import (
     FlowmatchingActionHead,
@@ -195,6 +209,7 @@ class GR00TN15Config(PretrainedConfig):
 class GR00TN15(PreTrainedModel):
     supports_gradient_checkpointing = True
     config_class = GR00TN15Config
+    all_tied_weights_keys = {}
     """
     we expect the backbone output to have a key 'backbone_features' with shape (batch_size, n, hidden_size)
     here n is variable and can be e.g. time, 1 or user specified

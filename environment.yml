@@ -1,0 +1,38 @@
+name: lerobot
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - git
+  - ffmpeg=7.1.1
+  - pip:
+      # CUDA-enabled PyTorch wheels are installed from PyPI in this environment.
+      # Keep these versions aligned with the Ubuntu training server.
+      - torch==2.10.0
+      - torchvision==0.25.0
+      - torchcodec==0.10.0
+
+      # LeRobot / Hugging Face training stack.
+      - accelerate==1.13.0
+      - datasets==4.7.0
+      - huggingface-hub==1.7.2
+      - transformers==5.3.0
+      - peft==0.19.1
+      - safetensors==0.7.0
+      - wandb==0.24.2
+
+      # Dataset/video processing.
+      - av==15.1.0
+      - decord==0.6.0
+      - einops==0.8.2
+      - numpy==1.26.0
+      - opencv-python-headless==4.13.0.92
+      - pandas==3.0.1
+      - pyarrow==23.0.1
+      - scipy==1.17.1
+
+      # GR00T extras. Install flash-attn after this env is created, once torch is importable.
+      - dm-tree>=0.1.8,<1.0.0
+      - timm>=1.0.0,<1.1.0
+      - ninja>=1.11.1,<2.0.0
