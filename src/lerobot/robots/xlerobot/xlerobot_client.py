@@ -20,15 +20,23 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from ..robot import Robot
 from .config_xlerobot import IndoryFastZMQCameraConfig, XLerobotClientConfig
+from .xlerobot_cam_bridge_stream import CamBridgeCameraSpec, CamBridgeCameraStreamPump
 from .xlerobot_camera_materializer import materialize_camera_archive as materialize_camera_archive_file
 from .xlerobot_camera_stream import CameraStreamPump
 from .xlerobot_command_builder import XLerobotCommandBuilder
-from .xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, LEGACY_CAMERA_TOPIC_TO_NAME, RIGHT_MOTORS
+from .xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, LEGACY_CAMERA_TOPIC_TO_NAME, RIGHT_MOTORS
 from .xlerobot_keyboard_control import (
     action_from_pressed_keys,
 )
-from .xlerobot_leader_kinematics import LeaderKinematicMapper
+from .xlerobot_leader_kinematics import LeaderKinematicMapper, cap_raw_targets_to_current
+from .xlerobot_protocol import (
+    base_cmd_from_action,
+    canonical_payload,
+    canonical_ticks_from_action,
+    canonical_ticks_to_action,
+)
 from .xlerobot_rgbd_decode import RgbdDepthDecoder
+from .xlerobot_rtp_udp_stream import Idd2DepthUdpSpec, RtpUdpCameraSpec, RtpUdpCameraStreamPump
 
 
 class XLerobotClient(Robot):
@@ -48,6 +56,7 @@ class XLerobotClient(Robot):
         self.port_zmq_rpc = config.port_zmq_rpc
         self.port_zmq_cameras = config.port_zmq_cameras
         self.port_zmq_rgbd = config.port_zmq_rgbd
+        self.camera_transport = config.camera_transport
         self.robot_id = int(config.robot_id)
         self.source_id = config.source_id
         self.source_role = config.source_role
@@ -61,7 +70,7 @@ class XLerobotClient(Robot):
         self.zmq_cmd_socket = None
         self.zmq_state_socket = None
         self.zmq_rgbd_socket = None
-        self.camera_stream: CameraStreamPump | None = None
+        self.camera_stream: CameraStreamPump | RtpUdpCameraStreamPump | CamBridgeCameraStreamPump | None = None
         self._is_connected = False
         self._seq = 0
         self._warned_encodings: set[str] = set()
@@ -153,15 +162,9 @@ class XLerobotClient(Robot):
         camera_topics = [
             topic for topic, name in self.camera_topic_to_name.items() if name in self._cameras_ft
         ]
-        self.camera_stream = CameraStreamPump(
-            remote_ip=self.remote_ip,
-            port=self.port_zmq_cameras,
-            topics=camera_topics,
-            topic_to_name=self.camera_topic_to_name,
-            camera_names=set(self._cameras_ft),
-        )
+        self.camera_stream = self._make_camera_stream(camera_topics)
         self.camera_stream.start()
-        if self.config.enable_rgbd:
+        if self.config.enable_rgbd and self.camera_transport == "zmq":
             self.zmq_rgbd_socket = self._make_sub_socket(self.port_zmq_rgbd, [self.config.rgbd_topic])
         health = self._rpc("health")
         if not health.get("ok"):
@@ -201,6 +204,8 @@ class XLerobotClient(Robot):
             obs_dict[cam_name] = frame if frame is not None else np.zeros(shape, dtype=np.uint8)
         for name, ft in self._depth_ft.items():
             depth = self.last_depth_frames.get(name)
+            if depth is None and isinstance(self.camera_stream, RtpUdpCameraStreamPump):
+                depth = self.camera_stream.depth_frames().get(name)
             obs_dict[name] = depth if depth is not None else np.zeros(ft["shape"], dtype=np.uint16)
         self.last_remote_state = obs_dict
         return obs_dict
@@ -232,6 +237,110 @@ class XLerobotClient(Robot):
         if self.command_builder.is_material_command(result.payload):
             self.zmq_cmd_socket.send(msgpack.packb(result.payload, use_bin_type=True), flags=zmq.NOBLOCK)
         return result.sent_action
+
+    def current_canonical_ticks(self) -> list[float] | None:
+        return self.command_builder.current_canonical_ticks(self.robot_id)
+
+    def action_from_canonical_ticks(
+        self,
+        canonical_ticks: list[float] | tuple[float, ...],
+        *,
+        base_cmd: list[float] | tuple[float, ...] | None = None,
+    ) -> dict[str, float]:
+        return canonical_ticks_to_action(canonical_ticks, base_cmd=base_cmd)
+
+    def capped_canonical_action(
+        self,
+        action: dict[str, Any],
+        *,
+        allow_base_action: bool = True,
+        head_override: dict[str, float] | None = None,
+        max_relative_target: float | dict[str, float] | None = None,
+    ) -> dict[str, float]:
+        current = self.current_canonical_ticks()
+        if current is None:
+            raise RuntimeError("Cannot build canonical action before receiving proprio joint positions.")
+        targets = canonical_ticks_from_action(action, current=current, head_override=head_override)
+        if max_relative_target is None:
+            max_relative_target = self.config.max_relative_target
+        capped = cap_raw_targets_to_current(
+            targets,
+            current,
+            CANONICAL_MOTORS,
+            self.follower_calibration,
+            max_relative_target,
+            self.config.leader_action_units,
+        )
+        return canonical_ticks_to_action(
+            capped,
+            base_cmd=base_cmd_from_action(action, allow_base_action=allow_base_action),
+        )
+
+    def capped_target_action(
+        self,
+        target_action: dict[str, Any],
+        *,
+        max_relative_target: float | dict[str, float] | None = None,
+    ) -> dict[str, float]:
+        current = self.current_canonical_ticks()
+        if current is None:
+            raise RuntimeError("Cannot cap target before receiving proprio joint positions.")
+        targets = canonical_ticks_from_action(target_action, require_all=True)
+        if max_relative_target is None:
+            max_relative_target = self.config.max_relative_target
+        capped = cap_raw_targets_to_current(
+            targets,
+            current,
+            CANONICAL_MOTORS,
+            self.follower_calibration,
+            max_relative_target,
+            self.config.leader_action_units,
+        )
+        return canonical_ticks_to_action(
+            capped,
+            base_cmd=base_cmd_from_action(target_action, allow_base_action=True),
+        )
+
+    def current_hold_action(
+        self,
+        *,
+        head_override: dict[str, float] | None = None,
+        gripper_targets: dict[str, float] | None = None,
+    ) -> dict[str, float]:
+        current = self.current_canonical_ticks()
+        if current is None:
+            raise RuntimeError("Cannot hold before receiving proprio joint positions.")
+        action = canonical_ticks_to_action(current)
+        if head_override:
+            for motor, value in head_override.items():
+                if motor in HEAD_MOTORS:
+                    action[motor] = float(value)
+        if gripper_targets:
+            for motor, value in gripper_targets.items():
+                action[motor] = float(value)
+        return action
+
+    def send_canonical_action(
+        self,
+        action: dict[str, Any],
+        *,
+        include_zero_base: bool = True,
+    ) -> dict[str, float]:
+        if not self._is_connected or self.zmq_cmd_socket is None:
+            raise DeviceNotConnectedError("XLerobotClient is not connected.")
+        canonical = canonical_ticks_from_action(action, require_all=True)
+        payload = canonical_payload(
+            seq=self._seq,
+            source_id=self.source_id,
+            source_role=self.source_role,
+            lease_ms=self.command_lease_ms,
+            canonical_ticks=canonical,
+            base_cmd=base_cmd_from_action(action, allow_base_action=True),
+            include_zero_base=include_zero_base,
+        )
+        self._seq += 1
+        self.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
+        return canonical_ticks_to_action(canonical, base_cmd=base_cmd_from_action(action, allow_base_action=True))
 
     def disconnect(self):
         if not self._is_connected:
@@ -273,6 +382,91 @@ class XLerobotClient(Robot):
             sock.setsockopt(zmq.SUBSCRIBE, topic.encode("utf-8"))
         sock.connect(f"tcp://{self.remote_ip}:{port}")
         return sock
+
+    def _make_camera_stream(
+        self, camera_topics: list[str]
+    ) -> CameraStreamPump | RtpUdpCameraStreamPump | CamBridgeCameraStreamPump:
+        if self.camera_transport == "cam_bridge":
+            return CamBridgeCameraStreamPump(
+                specs=self._cam_bridge_camera_specs(),
+                base_url=self.config.cam_bridge_base_url,
+                resize_mode=self.config.cam_bridge_resize_mode,
+            )
+        if self.camera_transport == "rtp_udp":
+            return RtpUdpCameraStreamPump(
+                specs=self._rtp_udp_camera_specs(),
+                bind_ip=self.config.rtp_udp_bind_ip,
+                payload_type=self.config.rtp_udp_payload_type,
+                ffmpeg_path=self.config.rtp_udp_ffmpeg_path,
+                depth_spec=self._rtp_udp_depth_spec(),
+            )
+        return CameraStreamPump(
+            remote_ip=self.remote_ip,
+            port=self.port_zmq_cameras,
+            topics=camera_topics,
+            topic_to_name=self.camera_topic_to_name,
+            camera_names=set(self._cameras_ft),
+        )
+
+    def _cam_bridge_camera_specs(self) -> list[CamBridgeCameraSpec]:
+        bridge_names = {
+            "head": "head",
+            "left_wrist": "wrist_left",
+            "right_wrist": "wrist_right",
+        }
+        specs: list[CamBridgeCameraSpec] = []
+        for name, shape in self._cameras_ft.items():
+            bridge_name = bridge_names.get(name)
+            if bridge_name is None:
+                continue
+            cfg = self.config.cameras.get(name)
+            specs.append(
+                CamBridgeCameraSpec(
+                    name=name,
+                    bridge_name=bridge_name,
+                    width=int(shape[1]),
+                    height=int(shape[0]),
+                    fps=float(getattr(cfg, "fps", 15) or 15),
+                )
+            )
+        return specs
+
+    def _rtp_udp_camera_specs(self) -> list[RtpUdpCameraSpec]:
+        ports = {
+            "head": int(self.config.rtp_udp_front_port),
+            "left_wrist": int(self.config.rtp_udp_wrist_left_port),
+            "right_wrist": int(self.config.rtp_udp_wrist_right_port),
+        }
+        specs: list[RtpUdpCameraSpec] = []
+        for name, shape in self._cameras_ft.items():
+            port = ports.get(name)
+            if port is None or port <= 0:
+                continue
+            cfg = self.config.cameras.get(name)
+            specs.append(
+                RtpUdpCameraSpec(
+                    name=name,
+                    port=port,
+                    width=int(shape[1]),
+                    height=int(shape[0]),
+                    fps=float(getattr(cfg, "fps", 15) or 15),
+                )
+            )
+        return specs
+
+    def _rtp_udp_depth_spec(self) -> Idd2DepthUdpSpec | None:
+        if not self.config.enable_rgbd:
+            return None
+        feature_name = str(self.config.rgbd_depth_feature)
+        shape = self._depth_ft.get(feature_name, {}).get("shape")
+        if not shape:
+            return None
+        return Idd2DepthUdpSpec(
+            name=feature_name,
+            port=int(self.config.rtp_udp_depth_port),
+            width=int(shape[1]),
+            height=int(shape[0]),
+        )
 
     def _rpc(self, op: str) -> dict[str, Any]:
         sock = self.zmq_context.socket(zmq.REQ)

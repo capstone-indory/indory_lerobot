@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import logging
 import math
-import time
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
-from .xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS, SCHEMA_VERSION
+from .xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
 from .xlerobot_keyboard_control import (
     arm_recenter_offsets,
     bounded_raw_target,
     head_relative_target_from_action,
 )
 from .xlerobot_leader_kinematics import FEETECH_TICKS_PER_REV, LeaderKinematicMapper, cap_raw_targets_to_current
+from .xlerobot_protocol import base_payload
 
 
 HEAD_TICK_TO_RAD = 2 * math.pi / FEETECH_TICKS_PER_REV
@@ -94,15 +94,7 @@ class XLerobotCommandBuilder:
 
     @staticmethod
     def _base_payload(seq: int, source_id: str, source_role: str, lease_ms: int) -> dict[str, Any]:
-        return {
-            "schema": SCHEMA_VERSION,
-            "source_id": source_id,
-            "source_role": source_role,
-            "seq": seq,
-            "stamp_ns": time.time_ns(),
-            "lease_ms": lease_ms,
-            "frame": "body",
-        }
+        return base_payload(seq=seq, source_id=source_id, source_role=source_role, lease_ms=lease_ms)
 
     @staticmethod
     def _base_cmd_from_action(action: dict[str, Any]) -> list[float] | None:
