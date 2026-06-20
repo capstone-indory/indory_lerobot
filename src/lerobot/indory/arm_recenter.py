@@ -50,6 +50,20 @@ def apply_arm_recenter_targets(base_action: dict[str, Any], targets: dict[str, f
     return action
 
 
+def recovery_home_actions(
+    home_action: dict[str, Any],
+    release_targets: dict[str, float],
+) -> tuple[dict[str, float], dict[str, float]]:
+    closed_home = {name: float(value) for name, value in home_action.items()}
+    open_home = dict(closed_home)
+    missing = [motor for motor in GRIPPER_MOTORS if motor not in release_targets]
+    if missing:
+        raise ValueError(f"release targets missing gripper motors: {missing}")
+    for motor in GRIPPER_MOTORS:
+        open_home[motor] = float(release_targets[motor])
+    return open_home, closed_home
+
+
 def moderate_gripper_open_targets(
     calibration: dict[str, dict[str, Any]],
     close_targets: dict[str, float],

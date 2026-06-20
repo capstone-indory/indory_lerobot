@@ -18,6 +18,7 @@ from lerobot.indory.success_detector import SuccessDetection
 
 DETECTOR_DEBUG_ATTRS = (
     "bottom_y_ratio",
+    "success_region",
     "position_metric",
     "required_consecutive",
     "hsv_lower",
@@ -246,18 +247,29 @@ def annotated_jpeg(frame_rgb: np.ndarray, *, state: dict[str, Any], detector: di
     detection = state.get("detection") or {}
     metadata = detection.get("metadata") or {}
     threshold = _as_float(detector.get("bottom_y_ratio"))
+    success_region = str(metadata.get("success_region") or detector.get("success_region") or "lower")
     metric_name = str(metadata.get("position_metric") or detector.get("position_metric") or "metric")
     metric_y = _as_float(metadata.get("metric_y_ratio"))
     success = bool(detection.get("success"))
     gate_reason = state.get("gate_reason")
-    spatial_pass = success or (threshold is not None and metric_y is not None and metric_y >= threshold)
+    spatial_pass = success or (
+        threshold is not None
+        and metric_y is not None
+        and (metric_y <= threshold if success_region == "upper" else metric_y >= threshold)
+    )
     color = (0, 220, 0) if spatial_pass and not gate_reason else (0, 165, 255) if spatial_pass else (0, 0, 255)
 
     if threshold is not None:
         y = int(round(threshold * height))
         y = max(0, min(height - 1, y))
         cv2.line(image, (0, y), (width - 1, y), (0, 255, 255), 2)
-        _put_text(image, f"{metric_name} threshold={threshold:.3f} y={y}", 10, max(24, y - 8), (0, 255, 255))
+        _put_text(
+            image,
+            f"{metric_name} {success_region} threshold={threshold:.3f} y={y}",
+            10,
+            max(24, y - 8),
+            (0, 255, 255),
+        )
 
     bbox = _xyxy(metadata.get("bbox_xyxy"))
     if bbox is not None:

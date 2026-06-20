@@ -119,6 +119,23 @@ def test_sky_blue_parcel_yolo_detector_accepts_head_ranges():
     assert inside.success
 
 
+def test_sky_blue_parcel_yolo_detector_can_require_upper_box():
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    detector = SkyBlueParcelYoloDetector(
+        bottom_y_ratio=0.4,
+        success_region="upper",
+        predictor=lambda _frame: [
+            DetectionBox((200.0, 80.0, 360.0, 180.0), confidence=0.9, class_name="parcel")
+        ],
+    )
+
+    detection = detector.detect({"head": frame}, step=1, elapsed_s=0.1, task="drop")
+
+    assert detection.success
+    assert detection.metadata["success_region"] == "upper"
+    assert detection.metadata["metric_y_ratio"] <= 0.4
+
+
 def test_sky_blue_parcel_color_segment_detector_requires_lower_segment():
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     sky_blue = np.array([90, 185, 230], dtype=np.uint8)
@@ -134,6 +151,29 @@ def test_sky_blue_parcel_color_segment_detector_requires_lower_segment():
     bottom = detector.detect({"head": frame}, step=1, elapsed_s=0.1, task="pick")
     assert bottom.success
     assert bottom.metadata["centroid_y_ratio"] >= 0.65
+
+
+def test_sky_blue_parcel_color_segment_detector_can_require_upper_segment():
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    sky_blue = np.array([90, 185, 230], dtype=np.uint8)
+    detector = SkyBlueParcelColorSegmentDetector(
+        bottom_y_ratio=0.45,
+        success_region="upper",
+        min_area_ratio=0.01,
+        position_metric="centroid",
+    )
+
+    frame[330:455, 230:520] = sky_blue
+    bottom = detector.detect({"head": frame}, step=0, elapsed_s=0.0, task="drop")
+    assert not bottom.success
+    assert bottom.metadata["metric_y_ratio"] > 0.45
+
+    frame[:] = 0
+    frame[60:180, 260:520] = sky_blue
+    top = detector.detect({"head": frame}, step=1, elapsed_s=0.1, task="drop")
+    assert top.success
+    assert top.metadata["success_region"] == "upper"
+    assert top.metadata["metric_y_ratio"] <= 0.45
 
 
 def test_sky_blue_parcel_color_segment_detector_rejects_oversized_segment():

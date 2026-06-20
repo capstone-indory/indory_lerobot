@@ -152,6 +152,7 @@ class SkyBlueParcelYoloDetector:
         target_class_names: str | list[str] | tuple[str, ...] | None = None,
         confidence_threshold: float = 0.25,
         bottom_y_ratio: float = 0.65,
+        success_region: str = "lower",
         min_box_area_ratio: float = 0.0,
         required_consecutive: int = 1,
         head_targets: dict[str, float] | list[float] | tuple[float, float] | None = None,
@@ -164,6 +165,7 @@ class SkyBlueParcelYoloDetector:
         self.target_class_names = normalize_class_names(target_class_names)
         self.confidence_threshold = float(confidence_threshold)
         self.bottom_y_ratio = float(bottom_y_ratio)
+        self.success_region = normalize_success_region(success_region)
         self.min_box_area_ratio = float(min_box_area_ratio)
         self.required_consecutive = max(1, int(required_consecutive))
         self.head_targets = normalize_head_targets(head_targets)
@@ -201,19 +203,28 @@ class SkyBlueParcelYoloDetector:
         best = self._best_success_box(frame)
         if best is None:
             self._consecutive = 0
-            return SuccessDetection(False, reason="no sky-blue parcel box in success zone")
+            return SuccessDetection(False, reason=f"no sky-blue parcel box in {self.success_region} success zone")
 
         self._consecutive += 1
+        metric_y = self._box_center_y_ratio(frame, best)
         metadata = {
             "bbox_xyxy": best.xyxy,
             "confidence": best.confidence,
             "class_name": best.class_name,
+            "position_metric": "bbox_center",
+            "metric_y_ratio": metric_y,
+            "bottom_y_ratio": self.bottom_y_ratio,
+            "success_region": self.success_region,
             "consecutive": self._consecutive,
             "step": step,
         }
         if self._consecutive < self.required_consecutive:
             return SuccessDetection(False, reason="success box needs consecutive confirmation", metadata=metadata)
-        return SuccessDetection(True, reason="sky-blue parcel box is in lower head RGB region", metadata=metadata)
+        return SuccessDetection(
+            True,
+            reason=f"sky-blue parcel box is in {self.success_region} head RGB region",
+            metadata=metadata,
+        )
 
     def _head_ready(self, raw_observation: dict[str, Any]) -> bool:
         return head_pose_ready(
@@ -237,9 +248,15 @@ class SkyBlueParcelYoloDetector:
             if area < min_area:
                 continue
             center_y_ratio = ((y1 + y2) * 0.5) / max(1.0, float(height))
-            if center_y_ratio >= self.bottom_y_ratio:
+            if metric_in_success_region(center_y_ratio, self.bottom_y_ratio, self.success_region):
                 candidates.append(box)
         return max(candidates, key=lambda b: b.confidence, default=None)
+
+    @staticmethod
+    def _box_center_y_ratio(frame: np.ndarray, box: DetectionBox) -> float:
+        height = max(1.0, float(frame.shape[0]))
+        _, y1, _, y2 = box.xyxy
+        return ((y1 + y2) * 0.5) / height
 
     def _detect_boxes(self, frame: np.ndarray) -> list[DetectionBox]:
         if self._predictor is not None:
@@ -266,6 +283,7 @@ class SkyBlueParcelColorSegmentDetector:
         hsv_lower: list[int] | tuple[int, int, int] = (82, 70, 80),
         hsv_upper: list[int] | tuple[int, int, int] = (125, 255, 255),
         bottom_y_ratio: float = 0.65,
+        success_region: str = "lower",
         min_area_ratio: float = 0.02,
         max_area_ratio: float = 0.45,
         required_consecutive: int = 1,
@@ -281,6 +299,7 @@ class SkyBlueParcelColorSegmentDetector:
         self.hsv_lower = normalize_hsv_triplet(hsv_lower, name="hsv_lower")
         self.hsv_upper = normalize_hsv_triplet(hsv_upper, name="hsv_upper")
         self.bottom_y_ratio = float(bottom_y_ratio)
+        self.success_region = normalize_success_region(success_region)
         self.min_area_ratio = max(0.0, float(min_area_ratio))
         self.max_area_ratio = max(self.min_area_ratio, float(max_area_ratio))
         self.required_consecutive = max(1, int(required_consecutive))
@@ -342,18 +361,32 @@ class SkyBlueParcelColorSegmentDetector:
             "bbox_bottom_y_ratio": segment.bbox_bottom_y_ratio,
             "position_metric": self.position_metric,
             "metric_y_ratio": metric_y,
+            "bottom_y_ratio": self.bottom_y_ratio,
+            "success_region": self.success_region,
             "consecutive": self._consecutive,
             "step": step,
         }
-        if metric_y < self.bottom_y_ratio:
+        if not metric_in_success_region(metric_y, self.bottom_y_ratio, self.success_region):
             self._consecutive = 0
-            return SuccessDetection(False, reason="sky-blue color segment is not in lower region", metadata=metadata)
+            return SuccessDetection(
+                False,
+                reason=f"sky-blue color segment is not in {self.success_region} region",
+                metadata=metadata,
+            )
 
         self._consecutive += 1
         metadata["consecutive"] = self._consecutive
         if self._consecutive < self.required_consecutive:
-            return SuccessDetection(False, reason="success color segment needs consecutive confirmation", metadata=metadata)
-        return SuccessDetection(True, reason="sky-blue color segment is in lower head RGB region", metadata=metadata)
+            return SuccessDetection(
+                False,
+                reason="success color segment needs consecutive confirmation",
+                metadata=metadata,
+            )
+        return SuccessDetection(
+            True,
+            reason=f"sky-blue color segment is in {self.success_region} head RGB region",
+            metadata=metadata,
+        )
 
     def _metric_y(self, segment: ColorSegment) -> float:
         if self.position_metric == "bbox_center":
@@ -517,6 +550,21 @@ def normalize_hsv_triplet(values: Any, *, name: str) -> tuple[int, int, int]:
         raise ValueError(f"{name} must be [h, s, v]")
     h, s, v = (int(round(float(value))) for value in values)
     return max(0, min(179, h)), max(0, min(255, s)), max(0, min(255, v))
+
+
+def normalize_success_region(value: str | None) -> str:
+    region = str(value or "lower").strip().lower().replace("-", "_")
+    if region in {"lower", "below", "bottom"}:
+        return "lower"
+    if region in {"upper", "above", "top"}:
+        return "upper"
+    raise ValueError("success_region must be 'lower'/'below' or 'upper'/'above'")
+
+
+def metric_in_success_region(metric_y_ratio: float, threshold_y_ratio: float, success_region: str) -> bool:
+    if success_region == "upper":
+        return metric_y_ratio <= threshold_y_ratio
+    return metric_y_ratio >= threshold_y_ratio
 
 
 def normalize_boxes(raw: Any) -> list[DetectionBox]:

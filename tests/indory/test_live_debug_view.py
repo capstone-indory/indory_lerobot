@@ -20,6 +20,7 @@ def test_detector_debug_summary_includes_color_segment_thresholds():
 
     assert summary["type"] == "SkyBlueParcelColorSegmentDetector"
     assert summary["bottom_y_ratio"] == 0.42
+    assert summary["success_region"] == "lower"
     assert summary["position_metric"] == "centroid"
     assert summary["required_consecutive"] == 15
 

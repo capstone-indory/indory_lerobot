@@ -8,6 +8,7 @@ from lerobot.indory.arm_recenter import (
     closed_grippers,
     moderate_gripper_open_targets,
     parse_arm_recenter_targets,
+    recovery_home_actions,
     target_position_error,
     targets_within_tolerance,
 )
@@ -76,6 +77,19 @@ def test_moderate_gripper_open_targets_use_calibration_range_max():
 
     assert targets["left_arm_gripper"] == pytest.approx(2095.0 + (3558.0 - 2095.0) * 0.35)
     assert targets["right_arm_gripper"] == pytest.approx(2031.0 + (3516.0 - 2031.0) * 0.35)
+
+
+def test_recovery_home_actions_return_open_then_closed_gripper_targets():
+    release_targets = {"left_arm_gripper": 3558.0, "right_arm_gripper": 3516.0}
+
+    open_home, closed_home = recovery_home_actions(DEFAULT_ARM_RECENTER_TICKS, release_targets)
+
+    assert open_home["left_arm_gripper"] == 3558.0
+    assert open_home["right_arm_gripper"] == 3516.0
+    assert closed_home["left_arm_gripper"] == DEFAULT_ARM_RECENTER_TICKS["left_arm_gripper"]
+    assert closed_home["right_arm_gripper"] == DEFAULT_ARM_RECENTER_TICKS["right_arm_gripper"]
+    assert open_home["left_arm_shoulder_pan"] == DEFAULT_ARM_RECENTER_TICKS["left_arm_shoulder_pan"]
+    assert closed_home["left_arm_shoulder_pan"] == DEFAULT_ARM_RECENTER_TICKS["left_arm_shoulder_pan"]
 
 
 def test_closed_grippers_detects_grippers_near_close_target():

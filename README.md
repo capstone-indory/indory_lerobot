@@ -60,8 +60,13 @@ Commands sent to `8856` are MessagePack dictionaries using
 ## Key Files
 
 - `INDORY_ZMQ_ROLES.md`: detailed role split and known missing work.
-- `scripts/indory_mac_teleop.sh`: Mac teleop wrapper.
+- `scripts/indory_mac_teleop.sh`: direct Mac-to-Pi teleop wrapper for standalone/manual use.
+- `scripts/indory_mac_leader_publisher.py`: Mac-side DROP leader action publisher. It does not connect to the adapter command socket.
 - `scripts/indory_mac_record.sh`: Mac active recording wrapper.
+- `scripts/indory_act_live.py`: guarded ACT live runner with success-detector hook.
+- `scripts/indory_drop_supervised_teleop.py`: super-side DROP runner that gates Mac leader actions through a success detector before forwarding to the adapter.
+- `scripts/indory_success_watch.py`: observation-only success detector watcher for
+  standalone success-detector checks.
 - `scripts/indory_ubuntu_train.sh`: default training wrapper.
 - `src/lerobot/robots/xlerobot/config_xlerobot.py`: `xlerobot_client`
   configuration registration.
@@ -123,10 +128,10 @@ Expected path:
 Teleop uses:
 
 - remote adapter-backed follower through `xlerobot_client`
-- local `bi_so_leader` leader arms
+- local `bi_so_leader` leader arms, or a single right SO101 leader arm
 - local keyboard base and head control
 
-Run:
+Run with both leader arms:
 
 ```bash
 cd /path/to/indory_lerobot
@@ -134,6 +139,52 @@ INDORY_ZMQ_HOST=<adapter-host> \
 INDORY_LEFT_LEADER_PORT=<left-leader-port> \
 INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
 ./scripts/indory_mac_teleop.sh
+```
+
+Run with only the right leader arm connected:
+
+```bash
+cd /path/to/indory_lerobot
+INDORY_ZMQ_HOST=<adapter-host> \
+INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
+./scripts/indory_mac_teleop.sh
+```
+
+In right-only mode, the single SO leader action is interpreted as the right arm
+target. The left arm is not included in outgoing targets, so it stays at the
+current/initial follower position.
+
+For server-managed DROP, do not run the direct Mac teleop wrapper. The Mac runs
+`scripts/indory_mac_leader_publisher.py`, which publishes local leader arm
+actions to super and never opens the adapter command socket. Super runs
+`scripts/indory_drop_supervised_teleop.py`, reads those leader actions, runs the
+DROP success detector, and only forwards fresh actions to the adapter while
+success is false. Use `success_region=upper` in `sky-blue-parcel-color` kwargs
+to make the same line test work as the inverse of the GRAB detector.
+
+Start the super-side gated DROP runner without sending robot commands:
+
+```bash
+python scripts/indory_drop_supervised_teleop.py \
+  --remote-ip <adapter-host> \
+  --leader-bind-host 0.0.0.0 \
+  --leader-bind-port 8892 \
+  --camera-transport cam_bridge \
+  --cam-bridge-base-url ws://127.0.0.1:8870 \
+  --success-detector sky-blue-parcel-color \
+  --success-detector-kwargs '{"hsv_lower":[82,70,80],"hsv_upper":[125,255,255],"bottom_y_ratio":0.65,"success_region":"upper","min_area_ratio":0.02,"max_area_ratio":0.45,"position_metric":"centroid","required_consecutive":15}'
+```
+
+Add `--send` only when this super process should actually forward gated leader
+actions to the adapter.
+
+Start the Mac leader publisher:
+
+```bash
+python scripts/indory_mac_leader_publisher.py \
+  --server-url tcp://super:8892 \
+  --right-leader-port <right-leader-port> \
+  --fps 15
 ```
 
 Common optional variables:
@@ -145,6 +196,8 @@ INDORY_ZMQ_SOURCE_ID=mac_xlerobot_teleop
 INDORY_ZMQ_SOURCE_ROLE=teleop
 INDORY_FPS=15
 INDORY_DISPLAY_DATA=true
+INDORY_TELEOP_ARM_MODE=auto
+INDORY_SINGLE_LEADER_TYPE=so101_leader
 INDORY_HEAD_STEP_RAD=0.05
 INDORY_HEAD_PAN_SIGN=1.0
 INDORY_HEAD_TILT_SIGN=1.0

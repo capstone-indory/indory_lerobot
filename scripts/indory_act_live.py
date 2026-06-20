@@ -18,6 +18,7 @@ from lerobot.indory.arm_recenter import (
     closed_grippers,
     moderate_gripper_open_targets,
     parse_arm_recenter_targets,
+    recovery_home_actions,
     target_position_error,
     targets_within_tolerance,
 )
@@ -204,6 +205,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--send", action="store_true", help="Actually send actions to the robot.")
     parser.add_argument("--warmup-s", type=float, default=2.0)
     parser.add_argument(
+        "--proprio-warmup-s",
+        type=float,
+        default=5.0,
+        help="Seconds to wait for proprio joint positions before building the initial hold action.",
+    )
+    parser.add_argument(
         "--no-arm-recenter",
         action="store_true",
         help="Skip the initial arm recenter move before policy inference.",
@@ -242,7 +249,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--arm-recenter-gripper-max-relative-target",
         type=float,
-        default=10.0,
+        default=20.0,
         help=(
             "Per-step cap used only while opening/closing grippers during the initial recenter. "
             "The arm/head recenter phase still uses --arm-recenter-max-relative-target."
@@ -335,6 +342,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--release-s", type=float, default=0.7)
     parser.add_argument("--return-s", type=float, default=2.0)
+    parser.add_argument(
+        "--success-close-gripper-s",
+        type=float,
+        default=0.7,
+        help="Seconds to close grippers back to the home/recenter target after success return-home.",
+    )
+    parser.add_argument(
+        "--no-success-close-grippers",
+        action="store_true",
+        help="Leave grippers open after success return-home.",
+    )
     parser.add_argument(
         "--release-gripper-target",
         type=float,
@@ -531,6 +549,25 @@ def wait_for_camera_frames(robot: XLerobotClient, *, timeout_s: float, require: 
                 ]
                 raise RuntimeError(f"Camera warm-up timed out; missing non-empty frames for {missing}")
             return last_obs
+        time.sleep(0.05)
+
+
+def wait_for_proprio_joint_positions(robot: XLerobotClient, *, timeout_s: float) -> dict[str, object]:
+    deadline = time.perf_counter() + max(0.0, timeout_s)
+    last_obs: dict[str, object] | None = None
+    while True:
+        last_obs = robot.get_observation()
+        current = robot.current_canonical_ticks()
+        if current is not None:
+            print(f"proprio warm-up ready: joints={len(current)}", flush=True)
+            return last_obs
+        if time.perf_counter() >= deadline:
+            latest_topics = ", ".join(sorted(robot.latest_topics.keys())) or "none"
+            raise RuntimeError(
+                f"Proprio warm-up timed out after {timeout_s:.1f}s; expected "
+                f"proprio.{robot.robot_id} joint_pos with at least 14 values; "
+                f"latest_topics={latest_topics}"
+            )
         time.sleep(0.05)
 
 
@@ -762,10 +799,17 @@ def run_success_recovery(
     release_action = current_hold_action(robot, head_override=head_override, gripper_targets=release_targets)
     send_target_for(robot, release_action, duration_s=args.release_s, fps=args.fps, label="release grippers")
 
-    home_action = dict(home_action)
-    for motor, value in release_targets.items():
-        home_action[motor] = value
-    send_target_for(robot, home_action, duration_s=args.return_s, fps=args.fps, label="return home")
+    open_home_action, closed_home_action = recovery_home_actions(home_action, release_targets)
+    send_target_for(robot, open_home_action, duration_s=args.return_s, fps=args.fps, label="return home")
+    if not args.no_success_close_grippers:
+        send_target_for(
+            robot,
+            closed_home_action,
+            duration_s=args.success_close_gripper_s,
+            fps=args.fps,
+            label="close grippers at home",
+            max_relative_target=args.arm_recenter_gripper_max_relative_target,
+        )
 
 
 def send_canonical_action(robot: XLerobotClient, action: dict[str, float]) -> None:
@@ -797,8 +841,19 @@ def main() -> None:
         raise ValueError("--success-min-steps must be non-negative")
     if args.success_min_elapsed_s < 0:
         raise ValueError("--success-min-elapsed-s must be non-negative")
-    if args.arm_recenter_s < 0 or args.arm_recenter_gripper_s < 0 or args.release_s < 0 or args.return_s < 0:
-        raise ValueError("--arm-recenter-s, --arm-recenter-gripper-s, --release-s, and --return-s must be non-negative")
+    if args.proprio_warmup_s < 0:
+        raise ValueError("--proprio-warmup-s must be non-negative")
+    if (
+        args.arm_recenter_s < 0
+        or args.arm_recenter_gripper_s < 0
+        or args.release_s < 0
+        or args.return_s < 0
+        or args.success_close_gripper_s < 0
+    ):
+        raise ValueError(
+            "--arm-recenter-s, --arm-recenter-gripper-s, --release-s, --return-s, "
+            "and --success-close-gripper-s must be non-negative"
+        )
     if args.arm_recenter_max_relative_target < 0:
         raise ValueError("--arm-recenter-max-relative-target must be non-negative")
     if args.arm_recenter_gripper_max_relative_target < 0:
@@ -923,6 +978,7 @@ def main() -> None:
             require=not args.no_require_camera_frames,
         )
         print("camera warm-up ready", flush=True)
+        raw_obs = wait_for_proprio_joint_positions(robot, timeout_s=args.proprio_warmup_s)
         print_head_rgb(raw_obs, args.print_head_rgb, label="warmup")
         if debug_view is not None:
             debug_view.update(raw_obs, step=0, status="camera warm-up")
