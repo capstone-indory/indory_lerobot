@@ -39,6 +39,7 @@ else:
 try:
     import tree
 except ImportError:
+
     class _TreeFallback:
         @staticmethod
         def map_structure(fn, structure):
@@ -187,7 +188,7 @@ N_COLOR_CHANNELS = 3
 
 
 # config
-@dataclass
+@dataclass(init=False)
 class GR00TN15Config(PretrainedConfig):
     model_type = "gr00t_n1_5"
     backbone_cfg: dict = field(init=False, metadata={"help": "Backbone configuration."})
