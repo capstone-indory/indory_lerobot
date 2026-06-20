@@ -61,6 +61,10 @@ jobs:
       HF_HOME: /mnt/cache/.cache/huggingface
       HF_LEROBOT_HOME: /mnt/cache/.cache/huggingface/lerobot
       HF_USER_TOKEN: ${{ secrets.LEROBOT_HF_USER }}
+      PYTEST_PUBLIC_CI_FILTER: >-
+        not test_factory
+        and not test_backward_compatibility
+        and not test_convert_image_to_video_dataset
     steps:
       - uses: actions/checkout@v6
         with:
@@ -95,7 +99,12 @@ jobs:
           uv run hf auth whoami
 
       - name: Run pytest (all extras)
-        run: uv run pytest tests -vv --maxfail=10
+        run: |
+          if [[ -n "${HF_USER_TOKEN}" ]]; then
+            uv run pytest tests -vv --maxfail=10
+          else
+            uv run pytest tests -vv --maxfail=10 -k "${PYTEST_PUBLIC_CI_FILTER}"
+          fi
 
       - name: Run end-to-end tests
         run: uv run make test-end-to-end
