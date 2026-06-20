@@ -7,6 +7,7 @@ import pytest
 
 from lerobot.robots.xlerobot.xlerobot_command_builder import HEAD_TICK_TO_RAD, XLerobotCommandBuilder
 from lerobot.robots.xlerobot.xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
+from lerobot.robots.xlerobot.xlerobot_leader_kinematics import LeaderKinematicMapper
 
 
 class NoopLeaderMapper:
@@ -43,6 +44,47 @@ def make_builder(*, max_relative_target=10.0, head_pan_sign=1.0, head_tilt_sign=
     }
     state_order = (*LEFT_MOTORS, *RIGHT_MOTORS, *HEAD_MOTORS, "x.vel", "y.vel", "theta.vel")
     return XLerobotCommandBuilder(config, NoopLeaderMapper(), {}, latest_topics, state_order)
+
+
+def make_leader_builder(*, max_relative_target=None):
+    config = SimpleNamespace(
+        max_relative_target=max_relative_target,
+        leader_action_units="degrees",
+        head_pan_sign=1.0,
+        head_tilt_sign=1.0,
+    )
+    latest_topics = {
+        "proprio.0": {
+            "joint_pos": [
+                1000.0,
+                1001.0,
+                1002.0,
+                1003.0,
+                1004.0,
+                1005.0,
+                2000.0,
+                2001.0,
+                2002.0,
+                2003.0,
+                2004.0,
+                2005.0,
+                2100.0,
+                2600.0,
+            ]
+        }
+    }
+    calibration = {
+        motor: {"range_min": 0.0, "range_max": 4095.0, "drive_mode": 0}
+        for motor in (*RIGHT_MOTORS, *LEFT_MOTORS, *HEAD_MOTORS)
+    }
+    state_order = (*LEFT_MOTORS, *RIGHT_MOTORS, *HEAD_MOTORS, "x.vel", "y.vel", "theta.vel")
+    return XLerobotCommandBuilder(
+        config,
+        LeaderKinematicMapper(calibration, "degrees"),
+        calibration,
+        latest_topics,
+        state_order,
+    )
 
 
 def test_policy_head_motor_targets_become_relative_head_command():
@@ -139,3 +181,20 @@ def test_explicit_relative_head_command_takes_precedence():
     )
     assert result.sent_action["head_motor_1"] == pytest.approx(2100.0 + 0.05 / HEAD_TICK_TO_RAD)
     assert result.sent_action["head_motor_2"] == pytest.approx(2600.0 - 0.02 / HEAD_TICK_TO_RAD)
+
+
+def test_single_so_leader_legacy_action_moves_right_arm_only():
+    builder = make_leader_builder()
+
+    result = builder.build(
+        {"arm_shoulder_pan.pos": 0.0},
+        seq=0,
+        source_id="test",
+        source_role="teleop",
+        lease_ms=300,
+        robot_id=0,
+    )
+
+    canonical = result.payload["arm_joint_pos_target"]
+    assert canonical[0] == pytest.approx(2047.5)
+    assert canonical[6:12] == pytest.approx([2000.0, 2001.0, 2002.0, 2003.0, 2004.0, 2005.0])

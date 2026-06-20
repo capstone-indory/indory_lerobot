@@ -7,10 +7,8 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-import msgpack
 import numpy as np
 import torch
-import zmq
 
 import lerobot.policies.groot.configuration_groot  # noqa: F401 - register config subclass
 from lerobot.configs.policies import PreTrainedConfig
@@ -19,13 +17,7 @@ from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.policies.utils import make_robot_action, prepare_observation_for_inference
 from lerobot.robots.xlerobot.config_xlerobot import XLerobotClientConfig
 from lerobot.robots.xlerobot.xlerobot_client import XLerobotClient
-from lerobot.robots.xlerobot.xlerobot_constants import (
-    CANONICAL_MOTORS,
-    HEAD_MOTORS,
-    LEFT_MOTORS,
-    RIGHT_MOTORS,
-)
-from lerobot.robots.xlerobot.xlerobot_leader_kinematics import cap_raw_targets_to_current
+from lerobot.robots.xlerobot.xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
 from lerobot.utils.robot_utils import precise_sleep
 
 STATE_NAMES = (
@@ -56,6 +48,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-relative-target", type=float, default=3.0)
     parser.add_argument("--command-lease-ms", type=int, default=300)
     parser.add_argument("--connect-timeout-s", type=int, default=5)
+    parser.add_argument("--camera-transport", choices=("zmq", "rtp_udp", "cam_bridge"), default="zmq")
+    parser.add_argument("--cam-bridge-base-url", default="ws://127.0.0.1:8870")
+    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")
+    parser.add_argument("--rtp-udp-payload-type", type=int, default=96)
+    parser.add_argument("--rtp-udp-front-port", type=int, default=5600)
+    parser.add_argument("--rtp-udp-wrist-left-port", type=int, default=5602)
+    parser.add_argument("--rtp-udp-wrist-right-port", type=int, default=5604)
+    parser.add_argument("--rtp-udp-depth-port", type=int, default=5610)
+    parser.add_argument("--rtp-udp-ffmpeg-path", default=None)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--send", action="store_true", help="Actually send actions to the robot.")
     parser.add_argument(
@@ -93,43 +94,7 @@ def capped_raw_policy_action(
     *,
     allow_base_motion: bool = False,
 ) -> dict[str, float]:
-    current = robot.command_builder.current_canonical_ticks(robot.robot_id)
-    if current is None:
-        raise RuntimeError("Cannot send policy action before receiving proprio joint positions.")
-
-    targets = list(current)
-    for idx, motor in enumerate(RIGHT_MOTORS):
-        targets[idx] = float(action[motor])
-    for idx, motor in enumerate(LEFT_MOTORS):
-        targets[6 + idx] = float(action[motor])
-    for idx, motor in enumerate(HEAD_MOTORS):
-        targets[12 + idx] = float(action[motor])
-
-    capped = cap_raw_targets_to_current(
-        targets,
-        current,
-        CANONICAL_MOTORS,
-        robot.follower_calibration,
-        robot.config.max_relative_target,
-        robot.config.leader_action_units,
-    )
-
-    sent: dict[str, float] = dict.fromkeys(STATE_NAMES, 0.0)
-    for idx, motor in enumerate(RIGHT_MOTORS):
-        sent[motor] = float(capped[idx])
-    for idx, motor in enumerate(LEFT_MOTORS):
-        sent[motor] = float(capped[6 + idx])
-    for idx, motor in enumerate(HEAD_MOTORS):
-        sent[motor] = float(capped[12 + idx])
-    if allow_base_motion:
-        sent["x.vel"] = float(action.get("x.vel", 0.0) or 0.0)
-        sent["y.vel"] = float(action.get("y.vel", 0.0) or 0.0)
-        sent["theta.vel"] = float(action.get("theta.vel", 0.0) or 0.0)
-    else:
-        sent["x.vel"] = 0.0
-        sent["y.vel"] = 0.0
-        sent["theta.vel"] = 0.0
-    return sent
+    return robot.capped_canonical_action(action, allow_base_action=allow_base_motion)
 
 
 def send_capped_raw_policy_action(
@@ -139,21 +104,7 @@ def send_capped_raw_policy_action(
     allow_base_motion: bool = False,
 ) -> dict[str, float]:
     sent = capped_raw_policy_action(robot, action, allow_base_motion=allow_base_motion)
-    canonical = [sent[motor] for motor in CANONICAL_MOTORS]
-    payload = robot.command_builder._base_payload(
-        robot._seq,
-        robot.source_id,
-        robot.source_role,
-        robot.command_lease_ms,
-    )
-    payload["arm_joint_pos_target"] = canonical
-    payload["arm_joint_pos_target_units"] = "feetech_ticks"
-    base_cmd = [sent["x.vel"], sent["y.vel"], sent["theta.vel"]]
-    if any(abs(value) > 1e-9 for value in base_cmd):
-        payload["base_cmd_vel"] = base_cmd
-    robot._seq += 1
-    robot.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
-    return sent
+    return robot.send_canonical_action(sent, include_zero_base=False)
 
 
 def main() -> None:
@@ -188,6 +139,15 @@ def main() -> None:
         max_relative_target=args.max_relative_target,
         command_lease_ms=args.command_lease_ms,
         connect_timeout_s=args.connect_timeout_s,
+        camera_transport=args.camera_transport,
+        cam_bridge_base_url=args.cam_bridge_base_url,
+        rtp_udp_bind_ip=args.rtp_udp_bind_ip,
+        rtp_udp_payload_type=args.rtp_udp_payload_type,
+        rtp_udp_front_port=args.rtp_udp_front_port,
+        rtp_udp_wrist_left_port=args.rtp_udp_wrist_left_port,
+        rtp_udp_wrist_right_port=args.rtp_udp_wrist_right_port,
+        rtp_udp_depth_port=args.rtp_udp_depth_port,
+        rtp_udp_ffmpeg_path=args.rtp_udp_ffmpeg_path,
     )
     robot = XLerobotClient(robot_cfg)
 
