@@ -17,10 +17,10 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project.urls]
-homepage = "https://huggingface.co/lerobot"
+homepage = "https://github.com/capstone-indory/indory_lerobot"
 documentation = "https://huggingface.co/docs/lerobot/index"
-source = "https://github.com/huggingface/lerobot"
-issues = "https://github.com/huggingface/lerobot/issues"
+source = "https://github.com/capstone-indory/indory_lerobot"
+issues = "https://github.com/capstone-indory/indory_lerobot/issues"
 discord = "https://discord.gg/s3KuuzsPFb"
 
 [project]

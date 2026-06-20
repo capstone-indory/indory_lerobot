@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import time
 from pathlib import Path
 
@@ -17,10 +18,14 @@ from lerobot.policies.factory import make_policy, make_pre_post_processors
 from lerobot.policies.utils import make_robot_action, prepare_observation_for_inference
 from lerobot.robots.xlerobot.config_xlerobot import XLerobotClientConfig
 from lerobot.robots.xlerobot.xlerobot_client import XLerobotClient
-from lerobot.robots.xlerobot.xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
+from lerobot.robots.xlerobot.xlerobot_constants import (
+    CANONICAL_MOTORS,
+    HEAD_MOTORS,
+    LEFT_MOTORS,
+    RIGHT_MOTORS,
+)
 from lerobot.robots.xlerobot.xlerobot_leader_kinematics import cap_raw_targets_to_current
 from lerobot.utils.robot_utils import precise_sleep
-
 
 STATE_NAMES = (
     *LEFT_MOTORS,
@@ -37,7 +42,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--remote-ip", required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--dataset-root", type=Path, required=True, help="Local LeRobot dataset root for feature metadata.")
-    parser.add_argument("--repo-id", default="hanbin5/indory_xlerobot_pick_delivery")
+    parser.add_argument(
+        "--repo-id",
+        default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
+    )
     parser.add_argument("--task", required=True)
     parser.add_argument("--fps", type=float, default=10.0)
     parser.add_argument("--duration-s", type=float, default=0.0, help="0 means predict one step only.")
@@ -47,6 +55,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--connect-timeout-s", type=int, default=5)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--send", action="store_true", help="Actually send actions to the robot.")
+    parser.add_argument(
+        "--allow-base-motion",
+        action="store_true",
+        help="Allow policy-predicted base velocities. By default base velocity commands are forced to zero.",
+    )
     return parser.parse_args()
 
 
@@ -69,7 +82,12 @@ def print_action_summary(action: dict[str, float], raw_obs: dict[str, object], *
         print(f"  {name:24s} pred={pred:9.3f} current={cur:9.3f} delta={delta:9.3f}", flush=True)
 
 
-def capped_raw_policy_action(robot: XLerobotClient, action: dict[str, float]) -> dict[str, float]:
+def capped_raw_policy_action(
+    robot: XLerobotClient,
+    action: dict[str, float],
+    *,
+    allow_base_motion: bool = False,
+) -> dict[str, float]:
     current = robot.command_builder.current_canonical_ticks(robot.robot_id)
     if current is None:
         raise RuntimeError("Cannot send policy action before receiving proprio joint positions.")
@@ -91,21 +109,31 @@ def capped_raw_policy_action(robot: XLerobotClient, action: dict[str, float]) ->
         robot.config.leader_action_units,
     )
 
-    sent: dict[str, float] = {name: 0.0 for name in STATE_NAMES}
+    sent: dict[str, float] = dict.fromkeys(STATE_NAMES, 0.0)
     for idx, motor in enumerate(RIGHT_MOTORS):
         sent[motor] = float(capped[idx])
     for idx, motor in enumerate(LEFT_MOTORS):
         sent[motor] = float(capped[6 + idx])
     for idx, motor in enumerate(HEAD_MOTORS):
         sent[motor] = float(capped[12 + idx])
-    sent["x.vel"] = float(action.get("x.vel", 0.0) or 0.0)
-    sent["y.vel"] = float(action.get("y.vel", 0.0) or 0.0)
-    sent["theta.vel"] = float(action.get("theta.vel", 0.0) or 0.0)
+    if allow_base_motion:
+        sent["x.vel"] = float(action.get("x.vel", 0.0) or 0.0)
+        sent["y.vel"] = float(action.get("y.vel", 0.0) or 0.0)
+        sent["theta.vel"] = float(action.get("theta.vel", 0.0) or 0.0)
+    else:
+        sent["x.vel"] = 0.0
+        sent["y.vel"] = 0.0
+        sent["theta.vel"] = 0.0
     return sent
 
 
-def send_capped_raw_policy_action(robot: XLerobotClient, action: dict[str, float]) -> dict[str, float]:
-    sent = capped_raw_policy_action(robot, action)
+def send_capped_raw_policy_action(
+    robot: XLerobotClient,
+    action: dict[str, float],
+    *,
+    allow_base_motion: bool = False,
+) -> dict[str, float]:
+    sent = capped_raw_policy_action(robot, action, allow_base_motion=allow_base_motion)
     canonical = [sent[motor] for motor in CANONICAL_MOTORS]
     payload = robot.command_builder._base_payload(
         robot._seq,
@@ -160,7 +188,8 @@ def main() -> None:
 
     print(
         f"Connecting to {args.remote_ip}; send={args.send}; fps={args.fps}; "
-        f"duration_s={args.duration_s}; max_relative_target={args.max_relative_target}",
+        f"duration_s={args.duration_s}; max_relative_target={args.max_relative_target}; "
+        f"allow_base_motion={args.allow_base_motion}",
         flush=True,
     )
     robot.connect()
@@ -182,11 +211,19 @@ def main() -> None:
             if step == 0 or not args.send:
                 print_action_summary(robot_action, raw_obs, prefix=f"step={step} predicted action")
             if args.send:
-                sent = send_capped_raw_policy_action(robot, robot_action)
+                sent = send_capped_raw_policy_action(
+                    robot,
+                    robot_action,
+                    allow_base_motion=args.allow_base_motion,
+                )
                 if step == 0:
                     print_action_summary(sent, raw_obs, prefix=f"step={step} sent/capped action")
             elif step == 0:
-                sent = capped_raw_policy_action(robot, robot_action)
+                sent = capped_raw_policy_action(
+                    robot,
+                    robot_action,
+                    allow_base_motion=args.allow_base_motion,
+                )
                 print_action_summary(sent, raw_obs, prefix=f"step={step} would-send/capped action")
             precise_sleep(max(0.0, 1.0 / args.fps - (time.perf_counter() - start_t)))
         print("done", flush=True)

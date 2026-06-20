@@ -12,7 +12,7 @@ export PYTHONPATH="${repo_root}/src:${PYTHONPATH:-}"
 
 robot_id="${INDORY_ROBOT_ID:-indory_xlerobot}"
 teleop_id="${INDORY_TELEOP_ID:-xlerobot_bi_so101_leader}"
-fps="${INDORY_FPS:-15}"
+fps="${INDORY_FPS:-10}"
 episodes="${INDORY_NUM_EPISODES:-10}"
 episode_time_s="${INDORY_EPISODE_TIME_S:-60}"
 reset_time_s="${INDORY_RESET_TIME_S:-10}"

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GROOT_DIR="${GROOT_DIR:-/home/hanbin5/Research/Capstone-Design/Isaac-GR00T-N1.7}"
-DATASET_PATH="${DATASET_PATH:-/home/hanbin5/Research/Capstone-Design/indory_lerobot/data/gr00t_n17/indory_xlerobot_pick_delivery_86ep10hz}"
-MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-/home/hanbin5/Research/Capstone-Design/indory_lerobot/scripts/gr00t_n17/indory_xlerobot_config.py}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LEROBOT_DIR="${LEROBOT_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+GROOT_DIR="${GROOT_DIR:-$(cd "${LEROBOT_DIR}/.." && pwd)/Isaac-GR00T-N1.7}"
+DATASET_PATH="${DATASET_PATH:-${LEROBOT_DIR}/data/gr00t_n17/indory_xlerobot_pick_delivery_86ep10hz}"
+MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-${SCRIPT_DIR}/indory_xlerobot_config.py}"
 
 cd "$GROOT_DIR"
 

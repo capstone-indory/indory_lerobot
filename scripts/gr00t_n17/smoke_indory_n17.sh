@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GROOT_DIR="${GROOT_DIR:-/home/hanbin5/Research/Capstone-Design/Isaac-GR00T-N1.7}"
-DATASET_PATH="${DATASET_PATH:-/home/hanbin5/Research/Capstone-Design/indory_lerobot/data/gr00t_n17/indory_xlerobot_pick_delivery_86ep10hz}"
-MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-/home/hanbin5/Research/Capstone-Design/indory_lerobot/scripts/gr00t_n17/indory_xlerobot_config.py}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LEROBOT_DIR="${LEROBOT_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+GROOT_DIR="${GROOT_DIR:-$(cd "${LEROBOT_DIR}/.." && pwd)/Isaac-GR00T-N1.7}"
+DATASET_PATH="${DATASET_PATH:-${LEROBOT_DIR}/data/gr00t_n17/indory_xlerobot_pick_delivery_86ep10hz}"
+MODALITY_CONFIG_PATH="${MODALITY_CONFIG_PATH:-${SCRIPT_DIR}/indory_xlerobot_config.py}"
 OUTPUT_DIR="${OUTPUT_DIR:-/tmp/indory_groot_n17_smoke}"
 SKIP_PREFLIGHT="${SKIP_PREFLIGHT:-0}"
 TRANSFORMERS_CACHE_DIR="${TRANSFORMERS_CACHE_DIR:-}"
@@ -16,7 +18,7 @@ export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
 
 if [ "$SKIP_PREFLIGHT" != "1" ]; then
-  /home/hanbin5/Research/Capstone-Design/indory_lerobot/scripts/gr00t_n17/preflight_indory_n17.sh
+  "${SCRIPT_DIR}/preflight_indory_n17.sh"
 fi
 
 TRANSFORMERS_ARGS=()

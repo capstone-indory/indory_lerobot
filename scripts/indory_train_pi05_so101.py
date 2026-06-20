@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import json
 import os
 import shlex
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
-
 
 SO101_PI05 = "CoRL2026-CSI/pi05_teleop_fold_towel"
 PI0_BASE = "lerobot/pi0_base"
@@ -21,7 +20,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Launch Indory XLerobot training from a SO101 Pi/GR00T pretrained policy."
     )
-    parser.add_argument("--dataset-repo-id", default="hanbin5/indory_xlerobot_pick_delivery")
+    parser.add_argument(
+        "--dataset-repo-id",
+        default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
+    )
     parser.add_argument("--dataset-root", default="data/indory_xlerobot_pick_delivery_head_patched")
     parser.add_argument("--dataset-video-backend", default="pyav")
     parser.add_argument("--policy-type", choices=("pi05", "pi0", "groot"), default="pi05")

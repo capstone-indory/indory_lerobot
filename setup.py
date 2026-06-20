@@ -60,7 +60,7 @@ def read_long_description() -> str:
     version = get_version_from_toml()
     git_tag = f"v{version}"
 
-    base_raw_url = f"https://raw.githubusercontent.com/huggingface/lerobot/{git_tag}/"
+    base_raw_url = f"https://raw.githubusercontent.com/capstone-indory/indory_lerobot/{git_tag}/"
     content = content.replace('src="./media/', f'src="{base_raw_url}media/')
 
     return content

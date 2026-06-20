@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -15,7 +16,6 @@ from torch.utils.data import DataLoader, Subset
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.policies.factory import make_policy, make_pre_post_processors
-
 
 GROUPS = {
     "left_arm": list(range(0, 6)),
@@ -30,7 +30,10 @@ GROUPS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Offline GT action evaluation for Indory GR00T checkpoints.")
     parser.add_argument("--dataset-root", type=Path, required=True)
-    parser.add_argument("--repo-id", default="hanbin5/indory_xlerobot_pick_delivery")
+    parser.add_argument(
+        "--repo-id",
+        default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
+    )
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -137,7 +140,6 @@ def main() -> None:
         gt = batch["action"].detach().cpu().float()
         pred = pred.detach().cpu().float()
         abs_err = (pred - gt).abs()
-        sq_err = (pred - gt).square()
         abs_errors.append(abs_err)
 
         for group, cols in GROUPS.items():

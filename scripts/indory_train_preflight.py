@@ -4,13 +4,13 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pyarrow.parquet as pq
 import torch
-
 
 BASE_NAMES = ("x.vel", "y.vel", "theta.vel")
 HEAD_NAMES = ("head_motor_1", "head_motor_2")
@@ -20,7 +20,10 @@ SO101_GROOT = "CoRL2026-CSI/Gr00t_n1.5-IsaacLab-SO101-Multi_Task-30fps_8epoch"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Preflight checks for Indory XLerobot Pi/GR00T training.")
-    parser.add_argument("--repo-id", default="hanbin5/indory_xlerobot_pick_delivery")
+    parser.add_argument(
+        "--repo-id",
+        default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
+    )
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--policy-type", choices=("pi05", "pi0", "groot"), default="pi05")
     parser.add_argument("--pretrained-path", default=None)

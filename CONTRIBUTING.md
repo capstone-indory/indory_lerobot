@@ -25,8 +25,8 @@ To contribute code, you need to set up a development environment.
 Fork the repository on GitHub, then clone your fork:
 
 ```bash
-git clone https://github.com/<your-handle>/lerobot.git
-cd lerobot
+git clone https://github.com/<your-handle>/indory_lerobot.git
+cd indory_lerobot
 git remote add upstream https://github.com/huggingface/lerobot.git
 ```
 

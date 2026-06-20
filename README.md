@@ -371,19 +371,19 @@ python scripts/indory_train_preflight.py \
   --scan-actions
 ```
 
-For the old `hanbin5/indory_xlerobot_pick_delivery` recording, preflight should
-show nonzero patched head actions but zero base actions. That dataset is usable
-for arms/head adaptation, but not for learning base motion.
+For older Indory recordings, preflight should show nonzero patched head actions
+but may show zero base actions. Such datasets are usable for arms/head
+adaptation, but not for learning base motion.
 
 For datasets recorded before head actions were stored in the action vector,
 create a local patched dataset root before training:
 
 ```bash
 python scripts/indory_patch_head_actions.py \
-  --repo-id hanbin5/indory_xlerobot_pick_delivery \
+  --repo-id <user>/<dataset-name> \
   --output-root data/indory_xlerobot_pick_delivery_head_patched
 
-INDORY_DATASET_REPO_ID=hanbin5/indory_xlerobot_pick_delivery \
+INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
 INDORY_DATASET_ROOT=data/indory_xlerobot_pick_delivery_head_patched \
 ./scripts/indory_ubuntu_train.sh
 ```
@@ -468,6 +468,17 @@ No images in display or dataset:
 - Confirm topics are `rgb.front.0`, `rgb.wrist_left.0`, and
   `rgb.wrist_right.0`.
 - Confirm PyAV is installed if the stream uses `h264_fmp4`.
+- For GR00T N1.7 live smoke, run the no-command preflight first:
+
+```bash
+REMOTE_IP=<pi-ip> \
+bash scripts/gr00t_n17/run_probe_indory_zmq.sh
+```
+
+If RPC and state are healthy but the probe reports no camera topics, or TCP
+connect to `8866` is refused, the robot stack is reachable but the Pi camera
+publisher is not serving RGB. Restart the Pi live stack before running a policy
+dry-run or any `SEND=1` command.
 
 Wrong LeRobot import:
 

@@ -8,13 +8,14 @@ Fortunately, being an open-source project, the community can also help by report
 
 ## Reporting a Vulnerability
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/huggingface/lerobot/security/advisories/new) tab.
+To report a security issue in this fork, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/capstone-indory/indory_lerobot/security/advisories/new) tab.
 
-The `lerobot` team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+The maintainers will send a response indicating the next steps in handling your report. After the initial reply to your report, we will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
 
-#### Hugging Face Security Team
+#### Upstream LeRobot and Hugging Face Infrastructure
 
-Since this project is part of the Hugging Face ecosystem, feel free to submit vulnerability reports directly to: **[security@huggingface.co](mailto:security@huggingface.co)**. Someone from the HF security team will review the report and recommend next steps.
+For vulnerabilities in upstream LeRobot or Hugging Face Hub infrastructure,
+please follow the upstream Hugging Face security reporting process.
 
 #### Open Source Disclosures
 

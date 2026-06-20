@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -11,7 +12,6 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from huggingface_hub import snapshot_download
-
 
 STATS_KEYS = ("min", "max", "mean", "std", "count", "q01", "q10", "q50", "q90", "q99")
 QUANTILES = {
@@ -30,7 +30,10 @@ def parse_args() -> argparse.Namespace:
             "use pseudo-labels derived from observation.state."
         )
     )
-    parser.add_argument("--repo-id", default="hanbin5/indory_xlerobot_pick_delivery")
+    parser.add_argument(
+        "--repo-id",
+        default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
+    )
     parser.add_argument("--revision", default=None)
     parser.add_argument("--root", type=Path, default=None, help="Existing local dataset root to patch.")
     parser.add_argument(
@@ -82,7 +85,7 @@ def main() -> None:
         states = np.stack([np.asarray(row, dtype=np.float32) for row in df["observation.state"]])
         episodes = df["episode_index"].to_numpy()
 
-        for episode_index in sorted(set(int(ep) for ep in episodes)):
+        for episode_index in sorted({int(ep) for ep in episodes}):
             row_indices = np.flatnonzero(episodes == episode_index)
             head_labels = states[row_indices][:, state_head_indices].copy()
             if args.label_mode == "next-observation" and len(row_indices) > 1:
