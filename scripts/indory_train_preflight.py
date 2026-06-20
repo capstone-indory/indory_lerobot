@@ -27,7 +27,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--policy-type", choices=("pi05", "pi0", "groot"), default="pi05")
     parser.add_argument("--pretrained-path", default=None)
-    parser.add_argument("--scan-actions", action="store_true", help="Scan parquet action columns for zero labels.")
+    parser.add_argument(
+        "--scan-actions", action="store_true", help="Scan parquet action columns for zero labels."
+    )
     return parser.parse_args()
 
 

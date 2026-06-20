@@ -111,7 +111,9 @@ def make_loader(
 def gr00t_observation(step_data: Any, language_key: str) -> dict[str, Any]:
     return {
         "video": {key: np.asarray(value, dtype=np.uint8)[None, :] for key, value in step_data.images.items()},
-        "state": {key: np.asarray(value, dtype=np.float32)[None, :] for key, value in step_data.states.items()},
+        "state": {
+            key: np.asarray(value, dtype=np.float32)[None, :] for key, value in step_data.states.items()
+        },
         "language": {language_key: [[step_data.text]]},
     }
 
@@ -135,11 +137,11 @@ def hold_baseline(step_data: Any, action_keys: list[str], horizon: int) -> dict[
     for key in action_keys:
         ref_key = key
         state = np.asarray(step_data.states[ref_key], dtype=np.float32)
-        baseline[key] = np.repeat(state[-1: ], horizon, axis=0)
+        baseline[key] = np.repeat(state[-1:], horizon, axis=0)
     return baseline
 
 
-def update_group_acc(acc: dict[str, dict[str, float]], group: str, abs_err: np.ndarray) -> None:
+def update_group_acc(acc: dict[str, dict[str, Any]], group: str, abs_err: np.ndarray) -> None:
     vals = np.asarray(abs_err, dtype=np.float64).reshape(-1)
     bucket = acc[group]
     bucket["count"] += int(vals.size)
@@ -149,7 +151,7 @@ def update_group_acc(acc: dict[str, dict[str, float]], group: str, abs_err: np.n
     bucket["values"].extend(float(v) for v in vals)
 
 
-def finalize(bucket: dict[str, Any]) -> dict[str, float]:
+def finalize(bucket: dict[str, Any]) -> dict[str, Any]:
     count = max(1, int(bucket["count"]))
     vals = np.asarray(bucket["values"], dtype=np.float64)
     return {
@@ -287,7 +289,12 @@ def main() -> None:
     }
     with args.output_json.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    print(json.dumps({"output_json": str(args.output_json), "selected_samples": selected, "metrics": metrics}, indent=2), flush=True)
+    print(
+        json.dumps(
+            {"output_json": str(args.output_json), "selected_samples": selected, "metrics": metrics}, indent=2
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

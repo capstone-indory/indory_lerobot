@@ -144,8 +144,7 @@ def patch_episode_action_stats(
     patched_actions_by_episode: dict[int, np.ndarray],
 ) -> None:
     episode_stats = {
-        episode_index: vector_stats(actions)
-        for episode_index, actions in patched_actions_by_episode.items()
+        episode_index: vector_stats(actions) for episode_index, actions in patched_actions_by_episode.items()
     }
     for meta_path in sorted((root / "meta" / "episodes").glob("chunk-*/*.parquet")):
         df = pq.read_table(meta_path).to_pandas()

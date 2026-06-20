@@ -52,7 +52,9 @@ PY
     return tmp_path
 
 
-def run_wrapper(tmp_path: Path, *, send: bool, dry_run_increments: bool = False) -> subprocess.CompletedProcess[str]:
+def run_wrapper(
+    tmp_path: Path, *, send: bool, dry_run_increments: bool = False
+) -> subprocess.CompletedProcess[str]:
     fake_root = write_fake_stack(tmp_path, dry_run_increments=dry_run_increments)
     counter = tmp_path / "counter.txt"
     counter.write_text("7", encoding="utf-8")

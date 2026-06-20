@@ -191,7 +191,9 @@ def build_train_cmd(args: argparse.Namespace, pretrained_path: str) -> list[str]
                 "--policy.use_bf16=true",
             ]
         )
-    train_args.extend(f"--policy.{name}={value}" for name, value in policy_overrides.items() if value is not None)
+    train_args.extend(
+        f"--policy.{name}={value}" for name, value in policy_overrides.items() if value is not None
+    )
 
     return cmd + train_args
 

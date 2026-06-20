@@ -5,6 +5,7 @@ import argparse
 import os
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import msgpack
 import numpy as np
@@ -41,7 +42,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Short guarded GR00T smoke inference on Indory XLerobot.")
     parser.add_argument("--remote-ip", required=True)
     parser.add_argument("--checkpoint", type=Path, required=True)
-    parser.add_argument("--dataset-root", type=Path, required=True, help="Local LeRobot dataset root for feature metadata.")
+    parser.add_argument(
+        "--dataset-root", type=Path, required=True, help="Local LeRobot dataset root for feature metadata."
+    )
     parser.add_argument(
         "--repo-id",
         default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),
@@ -64,7 +67,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def observation_frame(raw_obs: dict[str, object]) -> dict[str, np.ndarray]:
-    state = np.asarray([float(raw_obs.get(name, 0.0) or 0.0) for name in STATE_NAMES], dtype=np.float32)
+    state = np.asarray(
+        [float(cast(Any, raw_obs.get(name, 0.0)) or 0.0) for name in STATE_NAMES], dtype=np.float32
+    )
     return {
         "observation.state": state,
         "observation.images.head": np.asarray(raw_obs["head"], dtype=np.uint8),
@@ -77,7 +82,7 @@ def print_action_summary(action: dict[str, float], raw_obs: dict[str, object], *
     print(prefix, flush=True)
     for name in STATE_NAMES:
         pred = float(action.get(name, 0.0) or 0.0)
-        cur = float(raw_obs.get(name, 0.0) or 0.0)
+        cur = float(cast(Any, raw_obs.get(name, 0.0)) or 0.0)
         delta = pred - cur
         print(f"  {name:24s} pred={pred:9.3f} current={cur:9.3f} delta={delta:9.3f}", flush=True)
 

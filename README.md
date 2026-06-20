@@ -29,12 +29,12 @@ this fork connects to that server with `robot.type=xlerobot_client`.
 
 ## Runtime Roles
 
-| Machine | Role | Repository |
-| --- | --- | --- |
+| Machine      | Role                                           | Repository            |
+| ------------ | ---------------------------------------------- | --------------------- |
 | Raspberry Pi | Own motors, lidar, cameras, and live ZMQ ports | `/home/pi/indory_zmq` |
-| Mac | Teleop with leader arms and keyboard | this repo |
-| Mac | Active record while controlling the robot | this repo |
-| Ubuntu | Train on recorded datasets | this repo |
+| Mac          | Teleop with leader arms and keyboard           | this repo             |
+| Mac          | Active record while controlling the robot      | this repo             |
+| Ubuntu       | Train on recorded datasets                     | this repo             |
 
 The Pi must be started first:
 
@@ -46,13 +46,13 @@ cd /home/pi/indory_zmq
 
 ## ZMQ Contract
 
-| Port | Direction | Purpose |
-| --- | --- | --- |
+| Port   | Direction     | Purpose                                                             |
+| ------ | ------------- | ------------------------------------------------------------------- |
 | `8855` | Pi to clients | State topics: `proprio`, `joint_states`, `odom`, `tf.links`, `scan` |
-| `8856` | Clients to Pi | Command `PUSH/PULL` socket |
-| `8857` | Client to Pi | RPC: `health`, `calibration`, `command_status`, `topic_list` |
-| `8866` | Pi to clients | RGB topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0` |
-| `8867` | Pi to clients | Optional RGB-D stream |
+| `8856` | Clients to Pi | Command `PUSH/PULL` socket                                          |
+| `8857` | Client to Pi  | RPC: `health`, `calibration`, `command_status`, `topic_list`        |
+| `8866` | Pi to clients | RGB topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0`  |
+| `8867` | Pi to clients | Optional RGB-D stream                                               |
 
 Commands sent to `8856` are MessagePack dictionaries using
 `schema: xlerobot_v1.1`. Base commands use `frame: body` and
@@ -153,25 +153,25 @@ INDORY_HEAD_TILT_SIGN=1.0
 
 Keyboard base controls:
 
-| Key | Motion |
-| --- | --- |
-| `w` | forward |
-| `s` | backward |
-| `a` | strafe left |
+| Key | Motion       |
+| --- | ------------ |
+| `w` | forward      |
+| `s` | backward     |
+| `a` | strafe left  |
 | `d` | strafe right |
-| `q` | rotate left |
+| `q` | rotate left  |
 | `e` | rotate right |
-| `n` | speed up |
-| `m` | speed down |
+| `n` | speed up     |
+| `m` | speed down   |
 
 Keyboard head controls:
 
-| Key | Motion |
-| --- | --- |
-| `i` | tilt up |
-| `k` | tilt down |
-| `j` | pan left |
-| `l` | pan right |
+| Key | Motion        |
+| --- | ------------- |
+| `i` | tilt up       |
+| `k` | tilt down     |
+| `j` | pan left      |
+| `l` | pan right     |
 | `h` | recenter head |
 
 The client sends arm targets and base velocity through the same robot object, so

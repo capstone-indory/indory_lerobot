@@ -52,7 +52,9 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def select_indices(ds: LeRobotDataset, stride: int, limit: int | None, samples_per_episode: int | None) -> list[int]:
+def select_indices(
+    ds: LeRobotDataset, stride: int, limit: int | None, samples_per_episode: int | None
+) -> list[int]:
     if samples_per_episode is None:
         indices = list(range(0, ds.num_frames, stride))
     else:
@@ -80,7 +82,7 @@ def update_acc(acc: dict[str, Any], values: torch.Tensor) -> None:
     acc["sum_sq"] += float(values.square().sum())
 
 
-def finalize_acc(acc: dict[str, Any]) -> dict[str, float]:
+def finalize_acc(acc: dict[str, Any]) -> dict[str, Any]:
     count = max(1, int(acc["count"]))
     return {
         "mae": acc["sum_abs"] / count,
@@ -155,7 +157,9 @@ def main() -> None:
         for row_idx, row_mae in enumerate(nonbase_mae.tolist()):
             task = tasks[row_idx]
             update_acc(task_acc[task], abs_err[row_idx, GROUPS["nonbase_14d"]])
-            update_acc(episode_acc[str(int(episode_indices[row_idx]))], abs_err[row_idx, GROUPS["nonbase_14d"]])
+            update_acc(
+                episode_acc[str(int(episode_indices[row_idx]))], abs_err[row_idx, GROUPS["nonbase_14d"]]
+            )
             worst_rows.append(
                 {
                     "dataset_index": int(dataset_indices[row_idx]),
@@ -169,12 +173,15 @@ def main() -> None:
         worst_rows = sorted(worst_rows, key=lambda row: row["mae_nonbase_14d"], reverse=True)[:20]
 
         seen += int(gt.shape[0])
-        if seen == int(gt.shape[0]) or seen % args.progress_every < int(gt.shape[0]) or seen >= len(selected_indices):
+        if (
+            seen == int(gt.shape[0])
+            or seen % args.progress_every < int(gt.shape[0])
+            or seen >= len(selected_indices)
+        ):
             elapsed = time.perf_counter() - start
             fps = seen / elapsed if elapsed > 0 else 0.0
             print(
-                f"eval {seen}/{len(selected_indices)} frames "
-                f"elapsed={elapsed:.1f}s rate={fps:.2f} frame/s",
+                f"eval {seen}/{len(selected_indices)} frames elapsed={elapsed:.1f}s rate={fps:.2f} frame/s",
                 flush=True,
             )
 

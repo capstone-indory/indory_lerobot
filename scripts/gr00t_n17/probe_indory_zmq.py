@@ -83,7 +83,7 @@ def collect_sub_messages(
 
 
 def summarize_rpc(reply: dict[str, Any]) -> dict[str, Any]:
-    summary = {"ok": bool(reply.get("ok"))}
+    summary: dict[str, Any] = {"ok": bool(reply.get("ok"))}
     health = reply.get("health")
     if isinstance(health, dict):
         summary["ok"] = bool(health.get("ok", summary["ok"]))
@@ -205,7 +205,9 @@ def main() -> None:
         "state": {topic: summarize_state(payload) for topic, payload in state_messages.items()},
         "cameras": {topic: summarize_camera(payload) for topic, payload in camera_messages.items()},
         "missing_state_topics": sorted(set(state_topics) - set(state_messages)),
-        "missing_camera_topics": [] if args.skip_cameras else sorted(set(camera_topics) - set(camera_messages)),
+        "missing_camera_topics": []
+        if args.skip_cameras
+        else sorted(set(camera_topics) - set(camera_messages)),
     }
     print(json.dumps(report, indent=2, sort_keys=True))
 

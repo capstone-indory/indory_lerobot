@@ -90,7 +90,7 @@ def update_acc(acc: dict[str, Any], abs_err: torch.Tensor, mask: torch.Tensor) -
     acc["sum_sq"] += float(values.square().sum())
 
 
-def finalize_acc(acc: dict[str, Any]) -> dict[str, float]:
+def finalize_acc(acc: dict[str, Any]) -> dict[str, Any]:
     count = max(1, int(acc["count"]))
     return {
         "count": int(acc["count"]),
@@ -189,7 +189,9 @@ def main() -> None:
 
         nonbase = model_abs[:, :, GROUPS["nonbase_14d"]]
         nonbase_mask = valid.unsqueeze(-1).expand_as(nonbase)
-        per_row = nonbase.masked_fill(~nonbase_mask, 0).sum(dim=(1, 2)) / nonbase_mask.sum(dim=(1, 2)).clamp_min(1)
+        per_row = nonbase.masked_fill(~nonbase_mask, 0).sum(dim=(1, 2)) / nonbase_mask.sum(
+            dim=(1, 2)
+        ).clamp_min(1)
         for row_idx, row_mae in enumerate(per_row.tolist()):
             worst_rows.append(
                 {
@@ -203,10 +205,17 @@ def main() -> None:
         worst_rows = sorted(worst_rows, key=lambda row: row["model_chunk_mae_nonbase_14d"], reverse=True)[:20]
 
         seen += int(gt.shape[0])
-        if seen == int(gt.shape[0]) or seen % args.progress_every < int(gt.shape[0]) or seen >= len(selected_indices):
+        if (
+            seen == int(gt.shape[0])
+            or seen % args.progress_every < int(gt.shape[0])
+            or seen >= len(selected_indices)
+        ):
             elapsed = time.perf_counter() - start
             rate = seen / elapsed if elapsed > 0 else 0.0
-            print(f"eval {seen}/{len(selected_indices)} samples elapsed={elapsed:.1f}s rate={rate:.2f}/s", flush=True)
+            print(
+                f"eval {seen}/{len(selected_indices)} samples elapsed={elapsed:.1f}s rate={rate:.2f}/s",
+                flush=True,
+            )
 
     metrics = {}
     first_step_metrics = {}
@@ -220,7 +229,9 @@ def main() -> None:
 
         first_model = finalize_acc(first_model_acc[group])
         first_hold = finalize_acc(first_hold_acc[group])
-        first_model["mae_vs_hold_ratio"] = None if first_hold["mae"] == 0 else first_model["mae"] / first_hold["mae"]
+        first_model["mae_vs_hold_ratio"] = (
+            None if first_hold["mae"] == 0 else first_model["mae"] / first_hold["mae"]
+        )
         first_step_metrics[group] = {"model": first_model, "hold_current": first_hold}
 
     summary = {
