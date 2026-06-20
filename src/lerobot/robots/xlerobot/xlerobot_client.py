@@ -2,6 +2,7 @@
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 
+import contextlib
 import json
 import logging
 import math
@@ -19,8 +20,8 @@ from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnected
 
 from ..robot import Robot
 from .config_xlerobot import IndoryFastZMQCameraConfig, XLerobotClientConfig
-from .xlerobot_camera_stream import CameraStreamPump
 from .xlerobot_camera_materializer import materialize_camera_archive as materialize_camera_archive_file
+from .xlerobot_camera_stream import CameraStreamPump
 from .xlerobot_command_builder import XLerobotCommandBuilder
 from .xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, LEGACY_CAMERA_TOPIC_TO_NAME, RIGHT_MOTORS
 from .xlerobot_keyboard_control import (
@@ -31,7 +32,7 @@ from .xlerobot_rgbd_decode import RgbdDepthDecoder
 
 
 class XLerobotClient(Robot):
-    """LeRobot Robot wrapper for the indory_zmq fast ZMQ server."""
+    """LeRobot Robot wrapper for the indory_server adapter ZMQ endpoint."""
 
     config_class = XLerobotClientConfig
     name = "xlerobot_client"
@@ -165,7 +166,7 @@ class XLerobotClient(Robot):
         health = self._rpc("health")
         if not health.get("ok"):
             self.disconnect_sockets()
-            raise DeviceNotConnectedError(f"indory_zmq health check failed: {health}")
+            raise DeviceNotConnectedError(f"indory_server adapter health check failed: {health}")
         self._merge_remote_calibration(self._rpc("calibration"))
         self._is_connected = True
         self._warm_up_cameras()
@@ -235,10 +236,8 @@ class XLerobotClient(Robot):
     def disconnect(self):
         if not self._is_connected:
             raise DeviceNotConnectedError("XLerobotClient is not connected.")
-        try:
+        with contextlib.suppress(Exception):
             self.send_action({"x.vel": 0.0, "y.vel": 0.0, "theta.vel": 0.0})
-        except Exception:
-            pass
         self.disconnect_sockets()
         self._is_connected = False
 
@@ -260,10 +259,8 @@ class XLerobotClient(Robot):
         sock.setsockopt(zmq.LINGER, 0)
         sock.setsockopt(zmq.SNDHWM, 1)
         sock.setsockopt(zmq.SNDTIMEO, 0)
-        try:
+        with contextlib.suppress(zmq.ZMQError):
             sock.setsockopt(zmq.CONFLATE, 1)
-        except zmq.ZMQError:
-            pass
         sock.connect(f"tcp://{self.remote_ip}:{port}")
         return sock
 
@@ -369,7 +366,7 @@ class XLerobotClient(Robot):
         return mapping
 
     def _state_from_latest_topics(self) -> dict[str, Any]:
-        state = {key: 0.0 for key in self._state_order}
+        state = dict.fromkeys(self._state_order, 0.0)
         proprio = self.latest_topics.get(f"proprio.{self.robot_id}", {})
         joint_pos = proprio.get("joint_pos") if isinstance(proprio, dict) else None
         if isinstance(joint_pos, list) and len(joint_pos) >= 14:

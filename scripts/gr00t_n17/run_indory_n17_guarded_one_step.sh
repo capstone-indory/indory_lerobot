@@ -12,7 +12,7 @@ REQUEST_SEND="${SEND:-0}"
 CONFIRM_OPERATOR_READY="${CONFIRM_OPERATOR_READY:-0}"
 
 if [[ -z "$REMOTE_IP" ]]; then
-  echo "REMOTE_IP is required. Example: REMOTE_IP=<pi-ip> $0" >&2
+  echo "REMOTE_IP is required. Example: REMOTE_IP=<adapter-host> $0" >&2
   exit 2
 fi
 

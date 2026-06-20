@@ -1,16 +1,18 @@
 # indory_lerobot
 
-LeRobot companion fork for the Indoory XLeRobot ZMQ stack.
+LeRobot companion fork for the Indoory XLeRobot adapter stack.
 
-This repository is the Mac/Ubuntu-side LeRobot workspace. It does not replace
-the Raspberry Pi hardware server. The Pi must run `/home/pi/indory_zmq`, and
-this fork connects to that server with `robot.type=xlerobot_client`.
+This repository is the Mac/Ubuntu-side LeRobot workspace. It does not connect
+to the Raspberry Pi or robot hardware directly. It connects to the
+`indory_server` adapter endpoint with `robot.type=xlerobot_client`; the adapter
+owns the downstream hardware path.
 
 ## What This Fork Does
 
 - Registers `robot.type=xlerobot_client`.
-- Connects to the Pi fast ZMQ state, command, RPC, and RGB camera ports.
-- Keeps robot hardware ownership on the Pi.
+- Connects to the `indory_server` adapter state, command, RPC, and RGB camera
+  ports.
+- Keeps robot hardware ownership behind the `indory_server` adapter.
 - Lets Mac teleop combine local SO101/biSO101 leader arms with keyboard base
   control.
 - Lets Mac active recording command the robot and save LeRobot datasets.
@@ -21,7 +23,7 @@ this fork connects to that server with `robot.type=xlerobot_client`.
 
 - It does not open XLeRobot follower motor serial ports on the Mac or Ubuntu
   host.
-- It does not own Pi camera, lidar, or RealSense devices.
+- It does not own robot camera, lidar, RealSense, or Raspberry Pi processes.
 - It does not provide command authentication for `8856`.
 - It does not yet provide a passive observer-only recorder.
 - The included training wrapper is a default ACT recipe, not a final production
@@ -29,30 +31,27 @@ this fork connects to that server with `robot.type=xlerobot_client`.
 
 ## Runtime Roles
 
-| Machine      | Role                                           | Repository            |
-| ------------ | ---------------------------------------------- | --------------------- |
-| Raspberry Pi | Own motors, lidar, cameras, and live ZMQ ports | `/home/pi/indory_zmq` |
-| Mac          | Teleop with leader arms and keyboard           | this repo             |
-| Mac          | Active record while controlling the robot      | this repo             |
-| Ubuntu       | Train on recorded datasets                     | this repo             |
+| Component               | Role                                                  | Repository                            |
+| ----------------------- | ----------------------------------------------------- | ------------------------------------- |
+| Robot/Pi hardware       | Motors, lidar, and camera devices                     | managed downstream of `indory_server` |
+| `indory_server` adapter | Expose live ZMQ state, command, RPC, and camera ports | `indory_server`                       |
+| Mac                     | Teleop with leader arms and keyboard                  | this repo                             |
+| Mac                     | Active record while controlling the robot             | this repo                             |
+| Ubuntu                  | Train on recorded datasets                            | this repo                             |
 
-The Pi must be started first:
-
-```bash
-cd /home/pi/indory_zmq
-./scripts/indory_live_stack.sh restart
-./scripts/indory_live_stack.sh status
-```
+The `indory_server` adapter must be started first using that repository's
+runtime procedure. `indory_lerobot` should only need the adapter host/IP and the
+ZMQ ports below.
 
 ## ZMQ Contract
 
-| Port   | Direction     | Purpose                                                             |
-| ------ | ------------- | ------------------------------------------------------------------- |
-| `8855` | Pi to clients | State topics: `proprio`, `joint_states`, `odom`, `tf.links`, `scan` |
-| `8856` | Clients to Pi | Command `PUSH/PULL` socket                                          |
-| `8857` | Client to Pi  | RPC: `health`, `calibration`, `command_status`, `topic_list`        |
-| `8866` | Pi to clients | RGB topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0`  |
-| `8867` | Pi to clients | Optional RGB-D stream                                               |
+| Port   | Direction          | Purpose                                                             |
+| ------ | ------------------ | ------------------------------------------------------------------- |
+| `8855` | Adapter to clients | State topics: `proprio`, `joint_states`, `odom`, `tf.links`, `scan` |
+| `8856` | Clients to adapter | Command `PUSH/PULL` socket                                          |
+| `8857` | Client to adapter  | RPC: `health`, `calibration`, `command_status`, `topic_list`        |
+| `8866` | Adapter to clients | RGB topics: `rgb.front.0`, `rgb.wrist_left.0`, `rgb.wrist_right.0`  |
+| `8867` | Adapter to clients | Optional RGB-D stream                                               |
 
 Commands sent to `8856` are MessagePack dictionaries using
 `schema: xlerobot_v1.1`. Base commands use `frame: body` and
@@ -105,7 +104,7 @@ install it explicitly before running `INDORY_POLICY_TYPE=groot`.
 Verify the Indory client is the one being imported:
 
 ```bash
-cd /home/pi/indory_lerobot
+cd /path/to/indory_lerobot
 PYTHONPATH="$PWD/src:${PYTHONPATH:-}" python - <<'PY'
 import inspect
 from lerobot.robots.xlerobot import XLerobotClient
@@ -116,22 +115,22 @@ PY
 Expected path:
 
 ```text
-/home/pi/indory_lerobot/src/lerobot/robots/xlerobot/xlerobot_client.py
+/path/to/indory_lerobot/src/lerobot/robots/xlerobot/xlerobot_client.py
 ```
 
 ## Mac Teleop
 
 Teleop uses:
 
-- remote Pi follower through `xlerobot_client`
+- remote adapter-backed follower through `xlerobot_client`
 - local `bi_so_leader` leader arms
 - local keyboard base and head control
 
 Run:
 
 ```bash
-cd /home/pi/indory_lerobot
-INDORY_ZMQ_HOST=<pi-ip> \
+cd /path/to/indory_lerobot
+INDORY_ZMQ_HOST=<adapter-host> \
 INDORY_LEFT_LEADER_PORT=<left-leader-port> \
 INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
 ./scripts/indory_mac_teleop.sh
@@ -175,7 +174,8 @@ Keyboard head controls:
 | `h` | recenter head |
 
 The client sends arm targets and base velocity through the same robot object, so
-`indory_zmq` sees a single command source lease instead of competing clients.
+the `indory_server` adapter sees a single command source lease instead of
+competing clients.
 
 ## Mac Active Recording
 
@@ -185,8 +185,8 @@ not passive observation.
 Run:
 
 ```bash
-cd /home/pi/indory_lerobot
-INDORY_ZMQ_HOST=<pi-ip> \
+cd /path/to/indory_lerobot
+INDORY_ZMQ_HOST=<adapter-host> \
 INDORY_LEFT_LEADER_PORT=<left-leader-port> \
 INDORY_RIGHT_LEADER_PORT=<right-leader-port> \
 INDORY_DATASET_REPO_ID=<user>/<dataset-name> \
@@ -446,7 +446,7 @@ on a trusted network, private tunnel, or firewall-restricted path.
 
 Always verify:
 
-- the Pi stack is healthy before teleop
+- the `indory_server` adapter and downstream robot stack are healthy before teleop
 - leader arm ports are correct
 - camera feeds are side-specific
 - no other command client is driving the robot
@@ -457,33 +457,33 @@ Always verify:
 `xlerobot_client` cannot connect:
 
 ```bash
-cd /home/pi/indory_zmq
-./tools/fast_robot_client.py --host <pi-ip> health
-./tools/fast_robot_client.py --host <pi-ip> topics
+cd /path/to/indory_server
+./tools/fast_robot_client.py --host <adapter-host> health
+./tools/fast_robot_client.py --host <adapter-host> topics
 ```
 
 No images in display or dataset:
 
-- Confirm the Pi publishes RGB on `8866`, not `8855`.
+- Confirm the adapter publishes RGB on `8866`, not `8855`.
 - Confirm topics are `rgb.front.0`, `rgb.wrist_left.0`, and
   `rgb.wrist_right.0`.
 - Confirm PyAV is installed if the stream uses `h264_fmp4`.
 - For GR00T N1.7 live smoke, run the no-command preflight first:
 
 ```bash
-REMOTE_IP=<pi-ip> \
+REMOTE_IP=<adapter-host> \
 bash scripts/gr00t_n17/run_probe_indory_zmq.sh
 ```
 
 If RPC and state are healthy but the probe reports no camera topics, or TCP
-connect to `8866` is refused, the robot stack is reachable but the Pi camera
-publisher is not serving RGB. Restart the Pi live stack before running a policy
-dry-run or any `SEND=1` command.
+connect to `8866` is refused, the adapter is reachable but the adapter camera
+publisher is not serving RGB. Restart the `indory_server` adapter camera path
+before running a policy dry-run or any `SEND=1` command.
 
 Wrong LeRobot import:
 
 ```bash
-cd /home/pi/indory_lerobot
+cd /path/to/indory_lerobot
 PYTHONPATH="$PWD/src:${PYTHONPATH:-}" python - <<'PY'
 import inspect
 from lerobot.robots.xlerobot import XLerobotClient

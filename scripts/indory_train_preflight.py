@@ -19,7 +19,7 @@ SO101_GROOT = "CoRL2026-CSI/Gr00t_n1.5-IsaacLab-SO101-Multi_Task-30fps_8epoch"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Preflight checks for Indory XLerobot Pi/GR00T training.")
+    parser = argparse.ArgumentParser(description="Preflight checks for Indory XLerobot Pi0.5/GR00T training.")
     parser.add_argument(
         "--repo-id",
         default=os.environ.get("INDORY_DATASET_REPO_ID", "capstone-indory/indory_xlerobot_pick_delivery"),

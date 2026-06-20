@@ -238,7 +238,10 @@ def send_capped_raw_policy_action(
     if any(abs(value) > 1e-9 for value in base_cmd):
         payload["base_cmd_vel"] = base_cmd
     robot._seq += 1
-    robot.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
+    cmd_socket = robot.zmq_cmd_socket
+    if cmd_socket is None:
+        raise RuntimeError("XLerobotClient command socket is not connected.")
+    cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
     return sent
 
 
@@ -271,7 +274,7 @@ def ensure_tcp_connectable(remote_ip: str, port: int, timeout_s: float, *, label
     except OSError as exc:
         raise RuntimeError(
             f"{label} port {remote_ip}:{port} is not reachable ({exc}). "
-            "Start the Pi camera publisher before running GR00T policy smoke, "
+            "Start the indory_server adapter camera publisher before running GR00T policy smoke, "
             "or pass --allow-missing-cameras for control-path debugging only."
         ) from exc
 
@@ -336,7 +339,7 @@ def main() -> None:
             raise RuntimeError(
                 "Missing camera frames: "
                 + ", ".join(zero_images)
-                + ". Start the Pi camera publisher or pass --allow-missing-cameras for debugging only."
+                + ". Start the indory_server adapter camera publisher or pass --allow-missing-cameras for debugging only."
             )
 
         device = resolve_device(args.device)
@@ -361,7 +364,7 @@ def main() -> None:
                     raise RuntimeError(
                         "Missing camera frames: "
                         + ", ".join(zero_images)
-                        + ". Start the Pi camera publisher or pass --allow-missing-cameras for debugging only."
+                        + ". Start the indory_server adapter camera publisher or pass --allow-missing-cameras for debugging only."
                     )
             obs = gr00t_observation(raw_obs, args.task, policy.language_key)
             with torch.inference_mode():

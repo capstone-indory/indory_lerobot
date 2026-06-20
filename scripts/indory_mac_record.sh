@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PYTHONPATH="${repo_root}/src:${PYTHONPATH:-}"
 
-: "${INDORY_ZMQ_HOST:?Set INDORY_ZMQ_HOST to the Raspberry Pi address}"
+: "${INDORY_ZMQ_HOST:?Set INDORY_ZMQ_HOST to the indory_server adapter host}"
 : "${INDORY_LEFT_LEADER_PORT:?Set INDORY_LEFT_LEADER_PORT to the left leader arm serial port}"
 : "${INDORY_RIGHT_LEADER_PORT:?Set INDORY_RIGHT_LEADER_PORT to the right leader arm serial port}"
 : "${INDORY_DATASET_REPO_ID:?Set INDORY_DATASET_REPO_ID, for example user/indory-demo}"

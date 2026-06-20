@@ -15,9 +15,9 @@
 import os
 from dataclasses import dataclass, field
 
-from lerobot.cameras.configs import CameraConfig, Cv2Rotation, ColorMode
+from lerobot.cameras.configs import CameraConfig, ColorMode, Cv2Rotation
 from lerobot.cameras.opencv.configuration_opencv import OpenCVCameraConfig
-from lerobot.cameras.realsense import RealSenseCamera, RealSenseCameraConfig
+from lerobot.cameras.realsense import RealSenseCameraConfig
 
 from ..config import RobotConfig
 
@@ -81,9 +81,9 @@ def xlerobot_cameras_config() -> dict[str, CameraConfig]:
 
 
 def xlerobot_client_cameras_config() -> dict[str, CameraConfig]:
-    """Remote camera feature definitions for the indory_zmq client path.
+    """Remote camera feature definitions for the indory_server adapter path.
 
-    XLerobotClient reads images from the optimized indory_zmq camera socket
+    XLerobotClient reads images from the optimized adapter camera socket
     directly, so these configs provide LeRobot feature metadata only.
     """
     return {
@@ -114,7 +114,6 @@ def xlerobot_client_cameras_config() -> dict[str, CameraConfig]:
 @RobotConfig.register_subclass("xlerobot")
 @dataclass
 class XLerobotConfig(RobotConfig):
-    
     port1: str = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D044741-if00"  # left arm + head
     port2: str = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B14032190-if00"  # right arm + mobile base
     disable_torque_on_disconnect: bool = True
@@ -144,6 +143,7 @@ class XLerobotConfig(RobotConfig):
             "quit": "b",
         }
     )
+
 
 @RobotConfig.register_subclass("xlerobot_client")
 @dataclass

@@ -18,7 +18,7 @@ SO101_GROOT = "CoRL2026-CSI/Gr00t_n1.5-IsaacLab-SO101-Multi_Task-30fps_8epoch"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Launch Indory XLerobot training from a SO101 Pi/GR00T pretrained policy."
+        description="Launch Indory XLerobot training from a SO101 Pi0/Pi0.5 or GR00T pretrained policy."
     )
     parser.add_argument(
         "--dataset-repo-id",

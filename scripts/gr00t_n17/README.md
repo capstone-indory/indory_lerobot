@@ -53,38 +53,38 @@ bash scripts/gr00t_n17/smoke_indory_n17.sh
 Run the no-command live robot preflight:
 
 ```bash
-REMOTE_IP=<pi-ip> bash scripts/gr00t_n17/run_probe_indory_zmq.sh
+REMOTE_IP=<adapter-host> bash scripts/gr00t_n17/run_probe_indory_zmq.sh
 ```
 
 Run a live policy dry-run. This connects to the robot and checks inference, but
 does not send command payloads:
 
 ```bash
-REMOTE_IP=<pi-ip> bash scripts/gr00t_n17/run_indory_n17_robot_smoke.sh
+REMOTE_IP=<adapter-host> bash scripts/gr00t_n17/run_indory_n17_robot_smoke.sh
 ```
 
 The probe must show RPC health, `proprio.0`, and camera messages for
 `rgb.front.0`, `rgb.wrist_left.0`, and `rgb.wrist_right.0` before running a live
 policy smoke. If camera TCP connect to `8866` is refused or all camera topics are
-missing, restart the Pi camera publisher before continuing.
+missing, restart the `indory_server` adapter camera publisher before continuing.
 
 For a guarded one-step sequence:
 
 ```bash
-REMOTE_IP=<pi-ip> \
+REMOTE_IP=<adapter-host> \
 bash scripts/gr00t_n17/run_indory_n17_guarded_one_step.sh
 
-REMOTE_IP=<pi-ip> SEND=1 CONFIRM_OPERATOR_READY=1 \
+REMOTE_IP=<adapter-host> SEND=1 CONFIRM_OPERATOR_READY=1 \
 bash scripts/gr00t_n17/run_indory_n17_guarded_one_step.sh
 ```
 
 For a short guarded rollout:
 
 ```bash
-REMOTE_IP=<pi-ip> DURATION_S=3 FPS=1 \
+REMOTE_IP=<adapter-host> DURATION_S=3 FPS=1 \
 bash scripts/gr00t_n17/run_indory_n17_guarded_one_step.sh
 
-REMOTE_IP=<pi-ip> DURATION_S=3 FPS=1 SEND=1 CONFIRM_OPERATOR_READY=1 \
+REMOTE_IP=<adapter-host> DURATION_S=3 FPS=1 SEND=1 CONFIRM_OPERATOR_READY=1 \
 bash scripts/gr00t_n17/run_indory_n17_guarded_one_step.sh
 ```
 
@@ -93,7 +93,7 @@ Base motion is disabled unless `ALLOW_BASE_MOTION=1` is set explicitly.
 Record-matched live inference settings:
 
 ```bash
-REMOTE_IP=<pi-ip> DURATION_S=45 FPS=10 MAX_RELATIVE_TARGET=10.0 \
+REMOTE_IP=<adapter-host> DURATION_S=45 FPS=10 MAX_RELATIVE_TARGET=10.0 \
   SEND=1 CONFIRM_OPERATOR_READY=1 \
 bash scripts/gr00t_n17/run_indory_n17_guarded_one_step.sh
 ```
