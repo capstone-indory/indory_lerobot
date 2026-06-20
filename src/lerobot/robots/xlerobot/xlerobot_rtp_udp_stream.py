@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import shutil
@@ -52,7 +53,7 @@ class RtpUdpCameraStreamPump:
         depth_spec: Idd2DepthUdpSpec | None = None,
     ) -> None:
         self.specs = list(specs)
-        self.bind_ip = str(bind_ip or "0.0.0.0")
+        self.bind_ip = str(bind_ip or "0.0.0.0")  # nosec B104 - listens for camera UDP on the robot LAN.
         self.payload_type = int(payload_type)
         self.ffmpeg_path = ffmpeg_path
         self.depth_spec = depth_spec
@@ -159,7 +160,9 @@ class RtpUdpCameraStreamPump:
 
 
 class _DepthChunks:
-    def __init__(self, *, chunk_count: int, compressed_len: int, first_seen: float, meta: dict[str, Any]) -> None:
+    def __init__(
+        self, *, chunk_count: int, compressed_len: int, first_seen: float, meta: dict[str, Any]
+    ) -> None:
         self.chunk_count = int(chunk_count)
         self.compressed_len = int(compressed_len)
         self.first_seen = float(first_seen)
@@ -189,7 +192,7 @@ class _Idd2DepthUdpWorker(threading.Thread):
     ) -> None:
         super().__init__(name=f"xlerobot-idd2-depth-{spec.name}", daemon=True)
         self.spec = spec
-        self.bind_ip = str(bind_ip or "0.0.0.0")
+        self.bind_ip = str(bind_ip or "0.0.0.0")  # nosec B104 - listens for camera UDP on the robot LAN.
         self.stop_event = stop_event
         self.update_depth = update_depth
         self._sock: socket.socket | None = None
@@ -201,14 +204,14 @@ class _Idd2DepthUdpWorker(threading.Thread):
         sock = self._sock
         self._sock = None
         if sock is not None:
-            try:
+            with contextlib.suppress(Exception):
                 sock.close()
-            except Exception:
-                pass
 
     def run(self) -> None:
         if zstd is None:
-            self._log_error("zstandard is required to decode IDD2 depth UDP; depth frames will be unavailable")
+            self._log_error(
+                "zstandard is required to decode IDD2 depth UDP; depth frames will be unavailable"
+            )
             return
         decompressor = zstd.ZstdDecompressor()
         while not self.stop_event.is_set():
@@ -221,7 +224,7 @@ class _Idd2DepthUdpWorker(threading.Thread):
                 while not self.stop_event.is_set():
                     try:
                         packet, _addr = sock.recvfrom(65535)
-                    except socket.timeout:
+                    except TimeoutError:
                         self._drop_stale_frames()
                         continue
                     except OSError:
@@ -446,11 +449,9 @@ class _RtpUdpCameraWorker(threading.Thread):
         if proc is None:
             return
         for stream in (proc.stdout, proc.stderr, proc.stdin):
-            try:
+            with contextlib.suppress(Exception):
                 if stream is not None:
                     stream.close()
-            except Exception:
-                pass
         if proc.poll() is None:
             proc.terminate()
             deadline = time.monotonic() + 1.0
@@ -463,10 +464,8 @@ class _RtpUdpCameraWorker(threading.Thread):
         path = self._sdp_path
         self._sdp_path = None
         if path is not None:
-            try:
+            with contextlib.suppress(Exception):
                 path.unlink(missing_ok=True)
-            except Exception:
-                pass
 
     def _log_error(self, msg: str) -> None:
         now = time.monotonic()

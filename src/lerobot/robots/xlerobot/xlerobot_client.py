@@ -24,7 +24,13 @@ from .xlerobot_cam_bridge_stream import CamBridgeCameraSpec, CamBridgeCameraStre
 from .xlerobot_camera_materializer import materialize_camera_archive as materialize_camera_archive_file
 from .xlerobot_camera_stream import CameraStreamPump
 from .xlerobot_command_builder import XLerobotCommandBuilder
-from .xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, LEGACY_CAMERA_TOPIC_TO_NAME, RIGHT_MOTORS
+from .xlerobot_constants import (
+    CANONICAL_MOTORS,
+    HEAD_MOTORS,
+    LEFT_MOTORS,
+    LEGACY_CAMERA_TOPIC_TO_NAME,
+    RIGHT_MOTORS,
+)
 from .xlerobot_keyboard_control import (
     action_from_pressed_keys,
 )
@@ -70,7 +76,9 @@ class XLerobotClient(Robot):
         self.zmq_cmd_socket = None
         self.zmq_state_socket = None
         self.zmq_rgbd_socket = None
-        self.camera_stream: CameraStreamPump | RtpUdpCameraStreamPump | CamBridgeCameraStreamPump | None = None
+        self.camera_stream: CameraStreamPump | RtpUdpCameraStreamPump | CamBridgeCameraStreamPump | None = (
+            None
+        )
         self._is_connected = False
         self._seq = 0
         self._warned_encodings: set[str] = set()
@@ -340,7 +348,9 @@ class XLerobotClient(Robot):
         )
         self._seq += 1
         self.zmq_cmd_socket.send(msgpack.packb(payload, use_bin_type=True), flags=zmq.NOBLOCK)
-        return canonical_ticks_to_action(canonical, base_cmd=base_cmd_from_action(action, allow_base_action=True))
+        return canonical_ticks_to_action(
+            canonical, base_cmd=base_cmd_from_action(action, allow_base_action=True)
+        )
 
     def disconnect(self):
         if not self._is_connected:

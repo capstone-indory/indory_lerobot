@@ -50,7 +50,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--connect-timeout-s", type=int, default=5)
     parser.add_argument("--camera-transport", choices=("zmq", "rtp_udp", "cam_bridge"), default="zmq")
     parser.add_argument("--cam-bridge-base-url", default="ws://127.0.0.1:8870")
-    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")
+    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")  # nosec B104 - robot LAN UDP receiver.
     parser.add_argument("--rtp-udp-payload-type", type=int, default=96)
     parser.add_argument("--rtp-udp-front-port", type=int, default=5600)
     parser.add_argument("--rtp-udp-wrist-left-port", type=int, default=5602)

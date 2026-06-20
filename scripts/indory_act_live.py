@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import time
 from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -30,7 +31,6 @@ from lerobot.robots.xlerobot.config_xlerobot import XLerobotClientConfig
 from lerobot.robots.xlerobot.xlerobot_client import XLerobotClient
 from lerobot.robots.xlerobot.xlerobot_constants import HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
 from lerobot.utils.robot_utils import precise_sleep
-
 
 STATE_NAMES = (
     *LEFT_MOTORS,
@@ -85,7 +85,9 @@ class GripperLatch:
                 if self._open_counts[motor] >= self.open_steps:
                     self._latched[motor] = False
                     self._open_counts[motor] = 0
-                    print(f"gripper latch released {motor}: target={target:.0f} (step={step + 1})", flush=True)
+                    print(
+                        f"gripper latch released {motor}: target={target:.0f} (step={step + 1})", flush=True
+                    )
                     continue
             else:
                 self._open_counts[motor] = 0
@@ -185,14 +187,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-transport", choices=("zmq", "rtp_udp", "cam_bridge"), default="zmq")
     parser.add_argument("--cam-bridge-base-url", default="ws://127.0.0.1:8870")
     parser.add_argument("--cam-bridge-resize-mode", choices=("center_crop", "stretch"), default="center_crop")
-    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")
+    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")  # nosec B104 - robot LAN UDP receiver.
     parser.add_argument("--rtp-udp-payload-type", type=int, default=96)
     parser.add_argument("--rtp-udp-front-port", type=int, default=5600)
     parser.add_argument("--rtp-udp-wrist-left-port", type=int, default=5602)
     parser.add_argument("--rtp-udp-wrist-right-port", type=int, default=5604)
     parser.add_argument("--rtp-udp-depth-port", type=int, default=5610)
     parser.add_argument("--rtp-udp-ffmpeg-path", default=None)
-    parser.add_argument("--print-head-rgb", action="store_true", help="Print received head RGB frame summaries.")
+    parser.add_argument(
+        "--print-head-rgb", action="store_true", help="Print received head RGB frame summaries."
+    )
     parser.add_argument(
         "--print-head-rgb-every",
         type=int,
@@ -287,8 +291,12 @@ def parse_args() -> argparse.Namespace:
             "or a Python hook formatted as module:attribute."
         ),
     )
-    parser.add_argument("--success-detector-kwargs", default=None, help="JSON object passed to a Python hook.")
-    parser.add_argument("--success-file", type=Path, default=None, help="File watched by manual-file detector.")
+    parser.add_argument(
+        "--success-detector-kwargs", default=None, help="JSON object passed to a Python hook."
+    )
+    parser.add_argument(
+        "--success-file", type=Path, default=None, help="File watched by manual-file detector."
+    )
     parser.add_argument(
         "--success-head-targets",
         default=None,
@@ -410,7 +418,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Serve a local browser view with the active CLI config, head RGB overlay, and success metadata.",
     )
-    parser.add_argument("--debug-web-host", default="0.0.0.0")
+    parser.add_argument("--debug-web-host", default="0.0.0.0")  # nosec B104 - optional debug UI binding.
     parser.add_argument("--debug-web-port", type=int, default=8890)
     parser.add_argument("--debug-web-open", action="store_true", help="Open the debug web view in a browser.")
     parser.add_argument(
@@ -469,7 +477,11 @@ def detector_kwargs(
     success_head_ranges: dict[str, tuple[float, float]] | None,
 ) -> dict[str, object]:
     kwargs: dict[str, object] = parse_detector_kwargs(args.success_detector_kwargs)
-    if args.require_success_head_targets and success_head_targets is not None and "head_targets" not in kwargs:
+    if (
+        args.require_success_head_targets
+        and success_head_targets is not None
+        and "head_targets" not in kwargs
+    ):
         kwargs["head_targets"] = success_head_targets
     if success_head_ranges is not None and "head_ranges" not in kwargs:
         kwargs["head_ranges"] = success_head_ranges
@@ -495,8 +507,17 @@ def detector_inspection_head_targets(detector: object) -> dict[str, float] | Non
     return {name: float(value) for name, value in targets.items() if name in HEAD_MOTORS}
 
 
+def observation_float(raw_obs: dict[str, object], name: str) -> float:
+    value = raw_obs.get(name, 0.0)
+    if value is None:
+        return 0.0
+    if isinstance(value, str) and value == "":
+        return 0.0
+    return float(cast(Any, value))
+
+
 def observation_frame(raw_obs: dict[str, object]) -> dict[str, np.ndarray]:
-    state = np.asarray([float(raw_obs.get(name, 0.0) or 0.0) for name in STATE_NAMES], dtype=np.float32)
+    state = np.asarray([observation_float(raw_obs, name) for name in STATE_NAMES], dtype=np.float32)
     return {
         "observation.state": state,
         "observation.images.head": np.asarray(raw_obs["head"], dtype=np.uint8),
@@ -817,16 +838,19 @@ def send_canonical_action(robot: XLerobotClient, action: dict[str, float]) -> No
 
 
 def joint_delta(raw_obs: dict[str, object], action: dict[str, float]) -> tuple[float, float]:
-    values = [abs(float(action[name]) - float(raw_obs.get(name, 0.0) or 0.0)) for name in JOINT_NAMES]
+    values = [abs(float(action[name]) - observation_float(raw_obs, name)) for name in JOINT_NAMES]
     return max(values), sum(values) / max(1, len(values))
 
 
 def print_action_table(raw_obs: dict[str, object], action: dict[str, float], *, prefix: str) -> None:
     print(prefix, flush=True)
     for name in STATE_NAMES:
-        current = float(raw_obs.get(name, 0.0) or 0.0)
+        current = observation_float(raw_obs, name)
         target = float(action.get(name, 0.0) or 0.0)
-        print(f"  {name:24s} current={current:9.3f} target={target:9.3f} delta={target-current:9.3f}", flush=True)
+        print(
+            f"  {name:24s} current={current:9.3f} target={target:9.3f} delta={target - current:9.3f}",
+            flush=True,
+        )
 
 
 def main() -> None:
@@ -1014,7 +1038,9 @@ def main() -> None:
             stale_guard.check(raw_obs, step=step)
 
             detection = detector.detect(raw_obs, step=step, elapsed_s=elapsed_s, task=args.task)
-            gate_reason = success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            gate_reason = (
+                success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            )
             debug_status = "running"
             if detection.success and gate_reason is not None:
                 debug_status = "success gated"
@@ -1050,8 +1076,7 @@ def main() -> None:
                 else:
                     stop_reason = detection.reason or "success detector"
                     print(
-                        f"success detected before step={step + 1}: {stop_reason} "
-                        f"{detection.metadata or ''}",
+                        f"success detected before step={step + 1}: {stop_reason} {detection.metadata or ''}",
                         flush=True,
                     )
                     if args.send and not args.no_success_recovery:
@@ -1065,7 +1090,9 @@ def main() -> None:
                         hold_grippers = (
                             gripper_latch.latched_squeeze_targets() if gripper_latch is not None else None
                         )
-                        send_canonical_action(robot, current_hold_action(robot, gripper_targets=hold_grippers))
+                        send_canonical_action(
+                            robot, current_hold_action(robot, gripper_targets=hold_grippers)
+                        )
                         print(f"sent current-pose hold command (gripper squeeze={hold_grippers})", flush=True)
                     break
 
@@ -1100,11 +1127,15 @@ def main() -> None:
                     extra={"gripper_latch": gripper_latch.summary() if gripper_latch is not None else None},
                 )
 
-            if step == 0 or (args.print_every > 0 and (step + 1) % args.print_every == 0) or step == n_steps - 1:
+            if (
+                step == 0
+                or (args.print_every > 0 and (step + 1) % args.print_every == 0)
+                or step == n_steps - 1
+            ):
                 max_delta, mean_delta = joint_delta(raw_obs, sent)
                 latch_info = f"{gripper_latch.summary()} " if gripper_latch is not None else ""
                 print(
-                    f"step={step+1:03d}/{n_steps} elapsed={time.perf_counter()-start_run:5.2f}s "
+                    f"step={step + 1:03d}/{n_steps} elapsed={time.perf_counter() - start_run:5.2f}s "
                     f"max_joint_delta={max_delta:7.2f} mean_joint_delta={mean_delta:7.2f} "
                     f"base=({sent['x.vel']:.3f},{sent['y.vel']:.3f},{sent['theta.vel']:.3f}) "
                     f"{latch_info}send={args.send}",

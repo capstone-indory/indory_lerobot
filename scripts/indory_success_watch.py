@@ -17,7 +17,9 @@ HEAD_MOTORS = ("head_motor_1", "head_motor_2")
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Watch XLerobot observations until a success detector fires.")
+    parser = argparse.ArgumentParser(
+        description="Watch XLerobot observations until a success detector fires."
+    )
     parser.add_argument("--remote-ip", required=True)
     parser.add_argument("--robot-id", type=int, default=0)
     parser.add_argument("--fps", type=float, default=15.0)
@@ -26,7 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--camera-transport", choices=("zmq", "rtp_udp", "cam_bridge"), default="cam_bridge")
     parser.add_argument("--cam-bridge-base-url", default="ws://127.0.0.1:8870")
     parser.add_argument("--cam-bridge-resize-mode", choices=("center_crop", "stretch"), default="center_crop")
-    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")
+    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")  # nosec B104 - robot LAN UDP receiver.
     parser.add_argument("--rtp-udp-payload-type", type=int, default=96)
     parser.add_argument("--rtp-udp-front-port", type=int, default=5600)
     parser.add_argument("--rtp-udp-wrist-left-port", type=int, default=5602)
@@ -47,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task", default="drop parcel")
     parser.add_argument("--print-every", type=int, default=15)
     parser.add_argument("--debug-web-view", action="store_true")
-    parser.add_argument("--debug-web-host", default="0.0.0.0")
+    parser.add_argument("--debug-web-host", default="0.0.0.0")  # nosec B104 - optional debug UI binding.
     parser.add_argument("--debug-web-port", type=int, default=8890)
     parser.add_argument("--debug-web-open", action="store_true")
     parser.add_argument(
@@ -209,7 +211,9 @@ def main() -> None:
             if step > 0:
                 raw_obs = robot.get_observation()
             detection = detector.detect(raw_obs, step=step, elapsed_s=elapsed_s, task=args.task)
-            gate_reason = success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            gate_reason = (
+                success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            )
             status = "success gated" if gate_reason else "success" if detection.success else "running"
             if debug_view is not None:
                 debug_view.update(
@@ -230,8 +234,7 @@ def main() -> None:
             if detection.success and gate_reason is None:
                 stop_reason = detection.reason or "success detector"
                 print(
-                    f"success detected before step={step + 1}: {stop_reason} "
-                    f"{detection.metadata or {}}",
+                    f"success detected before step={step + 1}: {stop_reason} {detection.metadata or {}}",
                     flush=True,
                 )
                 exit_code = 0

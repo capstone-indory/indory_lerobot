@@ -4,7 +4,6 @@ from typing import Any
 
 from lerobot.robots.xlerobot.xlerobot_constants import LEFT_MOTORS, RIGHT_MOTORS
 
-
 ARM_RECENTER_MOTORS = (*LEFT_MOTORS, *RIGHT_MOTORS)
 GRIPPER_MOTORS = ("left_arm_gripper", "right_arm_gripper")
 
@@ -35,7 +34,9 @@ def parse_arm_recenter_targets(raw: str | None) -> dict[str, float]:
             raise ValueError("--arm-recenter-targets entries must be formatted as motor=value")
         name = name.strip()
         if name not in ARM_RECENTER_MOTORS:
-            raise ValueError(f"unsupported arm recenter motor {name!r}; expected one of {ARM_RECENTER_MOTORS}")
+            raise ValueError(
+                f"unsupported arm recenter motor {name!r}; expected one of {ARM_RECENTER_MOTORS}"
+            )
         targets[name] = float(value)
     return targets
 
@@ -98,10 +99,7 @@ def closed_grippers(
         close_target = float(close_targets[motor])
         open_target = float(open_targets[motor])
         threshold = close_target + (open_target - close_target) * ratio
-        if open_target >= close_target:
-            is_closed = current <= threshold
-        else:
-            is_closed = current >= threshold
+        is_closed = current <= threshold if open_target >= close_target else current >= threshold
         if is_closed:
             closed.append(motor)
     return closed

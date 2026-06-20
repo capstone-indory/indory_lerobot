@@ -17,12 +17,6 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from lerobot.teleoperators.bi_so_leader.bi_so_leader import BiSOLeader
-from lerobot.teleoperators.bi_so_leader.config_bi_so_leader import BiSOLeaderConfig
-from lerobot.teleoperators.so_leader.config_so_leader import SOLeaderConfig, SOLeaderTeleopConfig
-from lerobot.teleoperators.so_leader.so_leader import SOLeader
-
-
 SCHEMA = "indory_leader_action.v1"
 
 
@@ -32,7 +26,9 @@ def env(name: str, default: str | None = None) -> str | None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Publish local SO leader actions to a supervised DROP runner.")
+    parser = argparse.ArgumentParser(
+        description="Publish local SO leader actions to a supervised DROP runner."
+    )
     parser.add_argument("--server-url", default=env("INDORY_LEADER_SERVER_URL", "tcp://super:8892"))
     parser.add_argument("--fps", type=float, default=float(env("INDORY_FPS", "15") or 15))
     parser.add_argument("--source-id", default=env("INDORY_ZMQ_SOURCE_ID", "mac_xlerobot_drop_leader"))
@@ -61,12 +57,21 @@ def leader_mode(args: argparse.Namespace) -> str:
         return "right_only"
     if mode in {"bimanual", "bi"}:
         if not args.left_leader_port or not args.right_leader_port:
-            raise ValueError("--left-leader-port and --right-leader-port are required for bimanual leader publishing.")
+            raise ValueError(
+                "--left-leader-port and --right-leader-port are required for bimanual leader publishing."
+            )
         return "bimanual"
-    raise ValueError(f"Unsupported --teleop-arm-mode={args.teleop_arm_mode!r}; use auto, right_only, or bimanual.")
+    raise ValueError(
+        f"Unsupported --teleop-arm-mode={args.teleop_arm_mode!r}; use auto, right_only, or bimanual."
+    )
 
 
-def make_teleop(args: argparse.Namespace, mode: str) -> SOLeader | BiSOLeader:
+def make_teleop(args: argparse.Namespace, mode: str) -> Any:
+    from lerobot.teleoperators.bi_so_leader.bi_so_leader import BiSOLeader
+    from lerobot.teleoperators.bi_so_leader.config_bi_so_leader import BiSOLeaderConfig
+    from lerobot.teleoperators.so_leader.config_so_leader import SOLeaderConfig, SOLeaderTeleopConfig
+    from lerobot.teleoperators.so_leader.so_leader import SOLeader
+
     if mode == "right_only":
         if args.single_leader_type not in {"so100_leader", "so101_leader"}:
             raise ValueError("--single-leader-type must be so100_leader or so101_leader")

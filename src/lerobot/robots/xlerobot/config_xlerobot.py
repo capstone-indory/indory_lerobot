@@ -158,7 +158,7 @@ class XLerobotClientConfig(RobotConfig):
     camera_transport: str = "zmq"
     cam_bridge_base_url: str = "ws://127.0.0.1:8870"
     cam_bridge_resize_mode: str = "center_crop"
-    rtp_udp_bind_ip: str = "0.0.0.0"
+    rtp_udp_bind_ip: str = "0.0.0.0"  # nosec B104 - receives robot camera UDP on the robot LAN.
     rtp_udp_payload_type: int = 96
     rtp_udp_front_port: int = 5600
     rtp_udp_wrist_left_port: int = 5602
@@ -215,6 +215,8 @@ class XLerobotClientConfig(RobotConfig):
         self.camera_transport = str(self.camera_transport or "zmq").strip().lower().replace("-", "_")
         if self.camera_transport not in {"zmq", "rtp_udp", "cam_bridge"}:
             raise ValueError("camera_transport must be 'zmq', 'rtp_udp', or 'cam_bridge'")
-        self.cam_bridge_resize_mode = str(self.cam_bridge_resize_mode or "center_crop").strip().lower().replace("-", "_")
+        self.cam_bridge_resize_mode = (
+            str(self.cam_bridge_resize_mode or "center_crop").strip().lower().replace("-", "_")
+        )
         if self.cam_bridge_resize_mode not in {"center_crop", "stretch"}:
             raise ValueError("cam_bridge_resize_mode must be 'center_crop' or 'stretch'")

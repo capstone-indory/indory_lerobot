@@ -3,7 +3,7 @@
 LeRobot companion fork for the Indoory XLeRobot adapter stack.
 
 This repository is the Mac/Ubuntu-side LeRobot workspace. It does not connect
-to the Raspberry Pi or robot hardware directly. It connects to the
+to robot hardware directly. It connects to the
 `indory_server` adapter endpoint with `robot.type=xlerobot_client`; the adapter
 owns the downstream hardware path.
 
@@ -23,7 +23,7 @@ owns the downstream hardware path.
 
 - It does not open XLeRobot follower motor serial ports on the Mac or Ubuntu
   host.
-- It does not own robot camera, lidar, RealSense, or Raspberry Pi processes.
+- It does not own robot camera, lidar, RealSense, or hardware-side processes.
 - It does not provide command authentication for `8856`.
 - It does not yet provide a passive observer-only recorder.
 - The included training wrapper is a default ACT recipe, not a final production
@@ -33,7 +33,7 @@ owns the downstream hardware path.
 
 | Component               | Role                                                  | Repository                            |
 | ----------------------- | ----------------------------------------------------- | ------------------------------------- |
-| Robot/Pi hardware       | Motors, lidar, and camera devices                     | managed downstream of `indory_server` |
+| Robot hardware          | Motors, lidar, and camera devices                     | managed downstream of `indory_server` |
 | `indory_server` adapter | Expose live ZMQ state, command, RPC, and camera ports | `indory_server`                       |
 | Mac                     | Teleop with leader arms and keyboard                  | this repo                             |
 | Mac                     | Active record while controlling the robot             | this repo                             |
@@ -60,7 +60,7 @@ Commands sent to `8856` are MessagePack dictionaries using
 ## Key Files
 
 - `INDORY_ZMQ_ROLES.md`: detailed role split and known missing work.
-- `scripts/indory_mac_teleop.sh`: direct Mac-to-Pi teleop wrapper for standalone/manual use.
+- `scripts/indory_mac_teleop.sh`: adapter-backed Mac teleop wrapper for standalone/manual use.
 - `scripts/indory_mac_leader_publisher.py`: Mac-side DROP leader action publisher. It does not connect to the adapter command socket.
 - `scripts/indory_mac_record.sh`: Mac active recording wrapper.
 - `scripts/indory_act_live.py`: guarded ACT live runner with success-detector hook.

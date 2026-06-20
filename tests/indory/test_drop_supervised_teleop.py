@@ -35,10 +35,7 @@ def test_head_locked_teleop_action_preserves_current_left_arm_and_embeds_head_ta
     ]
     robot.latest_topics["proprio.0"] = {"joint_pos": current}
     robot.follower_calibration.update(
-        {
-            motor: {"range_min": 0.0, "range_max": 4095.0, "drive_mode": 0}
-            for motor in CANONICAL_MOTORS
-        }
+        {motor: {"range_min": 0.0, "range_max": 4095.0, "drive_mode": 0} for motor in CANONICAL_MOTORS}
     )
 
     action = build_head_locked_teleop_action(

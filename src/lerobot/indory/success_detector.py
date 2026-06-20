@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import importlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -203,7 +204,9 @@ class SkyBlueParcelYoloDetector:
         best = self._best_success_box(frame)
         if best is None:
             self._consecutive = 0
-            return SuccessDetection(False, reason=f"no sky-blue parcel box in {self.success_region} success zone")
+            return SuccessDetection(
+                False, reason=f"no sky-blue parcel box in {self.success_region} success zone"
+            )
 
         self._consecutive += 1
         metric_y = self._box_center_y_ratio(frame, best)
@@ -219,7 +222,9 @@ class SkyBlueParcelYoloDetector:
             "step": step,
         }
         if self._consecutive < self.required_consecutive:
-            return SuccessDetection(False, reason="success box needs consecutive confirmation", metadata=metadata)
+            return SuccessDetection(
+                False, reason="success box needs consecutive confirmation", metadata=metadata
+            )
         return SuccessDetection(
             True,
             reason=f"sky-blue parcel box is in {self.success_region} head RGB region",
@@ -271,7 +276,9 @@ class SkyBlueParcelYoloDetector:
                     "ultralytics is required for sky-blue-parcel-yolo success detection"
                 ) from exc
             self._model = YOLO(str(self.model_path))
-        return boxes_from_ultralytics(self._model.predict(frame, verbose=False, conf=self.confidence_threshold))
+        return boxes_from_ultralytics(
+            self._model.predict(frame, verbose=False, conf=self.confidence_threshold)
+        )
 
 
 class SkyBlueParcelColorSegmentDetector:
@@ -404,7 +411,9 @@ class SkyBlueParcelColorSegmentDetector:
         rgb = np.asarray(frame, dtype=np.uint8)
         height, width = rgb.shape[:2]
         hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-        mask = cv2.inRange(hsv, np.asarray(self.hsv_lower, dtype=np.uint8), np.asarray(self.hsv_upper, dtype=np.uint8))
+        mask = cv2.inRange(
+            hsv, np.asarray(self.hsv_lower, dtype=np.uint8), np.asarray(self.hsv_upper, dtype=np.uint8)
+        )
         if self.median_blur > 1:
             mask = cv2.medianBlur(mask, self.median_blur)
         if self.close_kernel > 1:
@@ -538,10 +547,7 @@ def _normalize_head_range_pair(raw_range: Any) -> tuple[float, float]:
 def normalize_class_names(names: str | list[str] | tuple[str, ...] | None) -> set[str]:
     if names is None or names == "":
         return set()
-    if isinstance(names, str):
-        values = names.split(",")
-    else:
-        values = names
+    values = names.split(",") if isinstance(names, str) else names
     return {str(name).strip().lower() for name in values if str(name).strip()}
 
 

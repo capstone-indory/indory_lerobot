@@ -20,7 +20,9 @@ class CamBridgeCameraSpec:
     fps: float
 
 
-def resize_frame_for_lerobot(frame_rgb: np.ndarray, *, width: int, height: int, mode: str = "center_crop") -> np.ndarray:
+def resize_frame_for_lerobot(
+    frame_rgb: np.ndarray, *, width: int, height: int, mode: str = "center_crop"
+) -> np.ndarray:
     frame = np.asarray(frame_rgb, dtype=np.uint8)
     target_width = int(width)
     target_height = int(height)
@@ -58,7 +60,9 @@ def resize_frame_for_lerobot(frame_rgb: np.ndarray, *, width: int, height: int, 
 class CamBridgeCameraStreamPump:
     """Receive JPEG frames from indory_pi_cam_bridge LeRobot camera endpoints."""
 
-    def __init__(self, *, specs: list[CamBridgeCameraSpec], base_url: str, resize_mode: str = "center_crop") -> None:
+    def __init__(
+        self, *, specs: list[CamBridgeCameraSpec], base_url: str, resize_mode: str = "center_crop"
+    ) -> None:
         self.specs = list(specs)
         self.base_url = str(base_url or "ws://127.0.0.1:8870").rstrip("/")
         self.resize_mode = str(resize_mode or "center_crop").strip().lower().replace("-", "_")
@@ -186,7 +190,7 @@ class _CamBridgeCameraWorker(threading.Thread):
                 while not self.stop_event.is_set():
                     try:
                         payload = await asyncio.wait_for(ws.recv(), timeout=0.2)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         continue
                     if isinstance(payload, str) or not payload:
                         continue

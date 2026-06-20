@@ -29,17 +29,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fps", type=float, default=15.0)
     parser.add_argument("--duration-s", type=float, default=180.0)
     parser.add_argument("--connect-timeout-s", type=float, default=5.0)
-    parser.add_argument("--leader-bind-host", default="0.0.0.0")
+    parser.add_argument("--leader-bind-host", default="0.0.0.0")  # nosec B104 - accepts Mac leader stream on LAN.
     parser.add_argument("--leader-bind-port", type=int, default=8892)
     parser.add_argument("--leader-action-timeout-s", type=float, default=0.75)
-    parser.add_argument("--send", action="store_true", help="Forward gated leader actions to the Pi command socket.")
+    parser.add_argument(
+        "--send", action="store_true", help="Forward gated leader actions to the adapter command socket."
+    )
     parser.add_argument("--no-hold-on-success", action="store_true")
     parser.add_argument("--command-lease-ms", type=int, default=300)
     parser.add_argument("--max-relative-target", type=float, default=10.0)
     parser.add_argument("--camera-transport", choices=("zmq", "rtp_udp", "cam_bridge"), default="cam_bridge")
     parser.add_argument("--cam-bridge-base-url", default="ws://127.0.0.1:8870")
     parser.add_argument("--cam-bridge-resize-mode", choices=("center_crop", "stretch"), default="center_crop")
-    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")
+    parser.add_argument("--rtp-udp-bind-ip", default="0.0.0.0")  # nosec B104 - robot LAN UDP receiver.
     parser.add_argument("--rtp-udp-payload-type", type=int, default=96)
     parser.add_argument("--rtp-udp-front-port", type=int, default=5600)
     parser.add_argument("--rtp-udp-wrist-left-port", type=int, default=5602)
@@ -63,7 +65,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--task", default="drop parcel")
     parser.add_argument("--print-every", type=int, default=15)
     parser.add_argument("--debug-web-view", action="store_true")
-    parser.add_argument("--debug-web-host", default="0.0.0.0")
+    parser.add_argument("--debug-web-host", default="0.0.0.0")  # nosec B104 - optional debug UI binding.
     parser.add_argument("--debug-web-port", type=int, default=8890)
     parser.add_argument("--debug-web-open", action="store_true")
     parser.add_argument("--debug-web-keepalive-s", type=float, default=5.0)
@@ -363,7 +365,9 @@ def main() -> None:
 
     kwargs = detector_kwargs(args)
     detector = make_success_detector(args.success_detector, kwargs=kwargs, manual_file=args.success_file)
-    inspection_head_targets = parse_head_targets(args.success_head_targets) or detector_inspection_head_targets(detector)
+    inspection_head_targets = parse_head_targets(
+        args.success_head_targets
+    ) or detector_inspection_head_targets(detector)
     debug_view = None
     if args.debug_web_view:
         debug_cli = cli_debug_summary(args)
@@ -442,10 +446,14 @@ def main() -> None:
                 latest_leader = newest
 
             detection = detector.detect(raw_obs, step=step, elapsed_s=elapsed_s, task=args.task)
-            gate_reason = success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            gate_reason = (
+                success_gate_reason(args, step=step, elapsed_s=elapsed_s) if detection.success else None
+            )
             if detection.success and gate_reason is not None:
                 status = f"success gated: {gate_reason}"
-                detection = type(detection)(False, reason=gate_reason, score=detection.score, metadata=detection.metadata)
+                detection = type(detection)(
+                    False, reason=gate_reason, score=detection.score, metadata=detection.metadata
+                )
             elif detection.success:
                 status = "success"
             else:
@@ -454,7 +462,8 @@ def main() -> None:
             action_age = leader_age_s(latest_leader)
             action = leader_action(latest_leader)
             action_fresh = action is not None and (
-                args.leader_action_timeout_s == 0 or (action_age is not None and action_age <= args.leader_action_timeout_s)
+                args.leader_action_timeout_s == 0
+                or (action_age is not None and action_age <= args.leader_action_timeout_s)
             )
 
             if debug_view is not None:

@@ -15,7 +15,6 @@ import numpy as np
 
 from lerobot.indory.success_detector import SuccessDetection
 
-
 DETECTOR_DEBUG_ATTRS = (
     "bottom_y_ratio",
     "success_region",
@@ -90,7 +89,9 @@ class LiveDebugWebView:
         self._server = ThreadingHTTPServer((self.host, self.port), handler)
         self._server.daemon_threads = True
         self.port = int(self._server.server_address[1])
-        self._thread = threading.Thread(target=self._server.serve_forever, name="indory-debug-web", daemon=True)
+        self._thread = threading.Thread(
+            target=self._server.serve_forever, name="indory-debug-web", daemon=True
+        )
         self._thread.start()
         print(f"debug web view: {self.url}", flush=True)
         if self.open_browser:
@@ -257,7 +258,9 @@ def annotated_jpeg(frame_rgb: np.ndarray, *, state: dict[str, Any], detector: di
         and metric_y is not None
         and (metric_y <= threshold if success_region == "upper" else metric_y >= threshold)
     )
-    color = (0, 220, 0) if spatial_pass and not gate_reason else (0, 165, 255) if spatial_pass else (0, 0, 255)
+    color = (
+        (0, 220, 0) if spatial_pass and not gate_reason else (0, 165, 255) if spatial_pass else (0, 0, 255)
+    )
 
     if threshold is not None:
         y = int(round(threshold * height))
@@ -340,7 +343,7 @@ def _xyxy(value: Any) -> tuple[int, int, int, int] | None:
     if not isinstance(value, (list, tuple)) or len(value) != 4:
         return None
     try:
-        x1, y1, x2, y2 = [int(round(float(part))) for part in value]
+        x1, y1, x2, y2 = (int(round(float(part))) for part in value)
     except (TypeError, ValueError):
         return None
     return x1, y1, x2, y2

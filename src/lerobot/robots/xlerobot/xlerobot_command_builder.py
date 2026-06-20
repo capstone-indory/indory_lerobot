@@ -13,9 +13,12 @@ from .xlerobot_keyboard_control import (
     bounded_raw_target,
     head_relative_target_from_action,
 )
-from .xlerobot_leader_kinematics import FEETECH_TICKS_PER_REV, LeaderKinematicMapper, cap_raw_targets_to_current
+from .xlerobot_leader_kinematics import (
+    FEETECH_TICKS_PER_REV,
+    LeaderKinematicMapper,
+    cap_raw_targets_to_current,
+)
 from .xlerobot_protocol import base_payload
-
 
 HEAD_TICK_TO_RAD = 2 * math.pi / FEETECH_TICKS_PER_REV
 
@@ -180,7 +183,9 @@ class XLerobotCommandBuilder:
         current = self.current_canonical_ticks(robot_id)
         if current is None:
             if any(self._head_action_value(action, motor) is not None for motor in HEAD_MOTORS):
-                logging.warning("Dropping head targets before receiving proprio.%s joint positions.", robot_id)
+                logging.warning(
+                    "Dropping head targets before receiving proprio.%s joint positions.", robot_id
+                )
             return None, None
 
         current_head = [float(current[12]), float(current[13])]
@@ -293,7 +298,7 @@ class XLerobotCommandBuilder:
         joint_targets: list[float | None] | None,
         head_targets: list[float] | None,
     ) -> dict[str, Any]:
-        values = {key: 0.0 for key in self.state_order}
+        values = dict.fromkeys(self.state_order, 0.0)
         if joint_targets is not None:
             for name, value in zip(LEFT_MOTORS, joint_targets[:6], strict=False):
                 if value is not None:

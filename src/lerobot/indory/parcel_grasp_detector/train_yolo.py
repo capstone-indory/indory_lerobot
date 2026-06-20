@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import random
 import shutil
 import subprocess
 import zipfile
 from pathlib import Path
 
+import numpy as np
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_ZIP = REPO_ROOT / "아카이브.zip"
@@ -128,7 +130,7 @@ def prepare_dataset(archives: list[Path], dataset: Path, val_every: int, augment
 def convert_heic(src: Path, dst: Path) -> None:
     if dst.exists():
         return
-    try:
+    with contextlib.suppress(Exception):
         import pillow_heif
         from PIL import Image
 
@@ -136,8 +138,6 @@ def convert_heic(src: Path, dst: Path) -> None:
         with Image.open(src) as image:
             image.convert("RGB").save(dst, quality=95)
         return
-    except Exception:
-        pass
 
     magick = shutil.which("magick")
     if magick:
@@ -202,8 +202,8 @@ def augment_train_set(
 
 
 def augment_image_and_polygon(
-    image: "np.ndarray", polygon: list[tuple[float, float]], rng: random.Random
-) -> tuple["np.ndarray", list[tuple[float, float]] | None]:
+    image: np.ndarray, polygon: list[tuple[float, float]], rng: random.Random
+) -> tuple[np.ndarray, list[tuple[float, float]] | None]:
     import cv2
     import numpy as np
 
@@ -221,10 +221,12 @@ def augment_image_and_polygon(
     matrix = cv2.getRotationMatrix2D((width / 2.0, height / 2.0), angle, scale)
     matrix[0, 2] += tx
     matrix[1, 2] += ty
-    warped = cv2.warpAffine(image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101)
+    warped = cv2.warpAffine(
+        image, matrix, (width, height), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT_101
+    )
 
-    hom = np.concatenate([points, np.ones((4, 1), dtype=np.float32)], axis=1)
-    transformed = hom @ matrix.T
+    homogeneous = np.concatenate([points, np.ones((4, 1), dtype=np.float32)], axis=1)
+    transformed = homogeneous @ matrix.T
     transformed[:, 0] = np.clip(transformed[:, 0], 0, width)
     transformed[:, 1] = np.clip(transformed[:, 1], 0, height)
     if cv2.contourArea(transformed.astype(np.float32)) < width * height * 0.01:
@@ -239,7 +241,12 @@ def augment_image_and_polygon(
     warped = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
     if rng.random() < 0.35:
         noise = rng.uniform(2.0, 7.0)
-        warped = np.clip(warped.astype(np.float32) + np.random.default_rng(rng.randrange(1_000_000)).normal(0, noise, warped.shape), 0, 255).astype(np.uint8)
+        warped = np.clip(
+            warped.astype(np.float32)
+            + np.random.default_rng(rng.randrange(1_000_000)).normal(0, noise, warped.shape),
+            0,
+            255,
+        ).astype(np.uint8)
     if rng.random() < 0.25:
         warped = cv2.GaussianBlur(warped, (3, 3), 0)
 
@@ -277,7 +284,7 @@ def format_obb_label(polygon: list[tuple[float, float]]) -> str:
     coords = []
     for x, y in polygon:
         coords.extend([max(0.0, min(1.0, x)), max(0.0, min(1.0, y))])
-    return "0 " + " ".join("%.6f" % value for value in coords) + "\n"
+    return "0 " + " ".join(f"{value:.6f}" for value in coords) + "\n"
 
 
 def read_cv_image(path: Path):
@@ -297,7 +304,9 @@ def train(args: argparse.Namespace) -> int:
     try:
         from ultralytics import YOLO
     except Exception as exc:
-        raise SystemExit(f"ultralytics is not installed: {exc}\nInstall with: pip install ultralytics") from exc
+        raise SystemExit(
+            f"ultralytics is not installed: {exc}\nInstall with: pip install ultralytics"
+        ) from exc
 
     args.model_dir.mkdir(parents=True, exist_ok=True)
     model = YOLO(args.base_model)

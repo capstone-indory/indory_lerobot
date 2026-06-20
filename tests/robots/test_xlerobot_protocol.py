@@ -5,7 +5,12 @@ import pytest
 
 from lerobot.robots.xlerobot.config_xlerobot import XLerobotClientConfig
 from lerobot.robots.xlerobot.xlerobot_client import XLerobotClient
-from lerobot.robots.xlerobot.xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS
+from lerobot.robots.xlerobot.xlerobot_constants import (
+    CANONICAL_MOTORS,
+    HEAD_MOTORS,
+    LEFT_MOTORS,
+    RIGHT_MOTORS,
+)
 from lerobot.robots.xlerobot.xlerobot_protocol import (
     base_cmd_from_action,
     canonical_payload,

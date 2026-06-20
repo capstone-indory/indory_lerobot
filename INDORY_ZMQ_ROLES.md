@@ -4,14 +4,14 @@ This repository can participate in the Indory stack, but the current target
 architecture is not "LeRobot opens robot hardware directly".
 
 The hardware owner is outside this repository. LeRobot clients connect only to
-the `indory_server` adapter endpoint and must not connect directly to the
-Raspberry Pi or robot hardware.
+the `indory_server` adapter endpoint and must not connect directly to robot
+hardware.
 
 ## Target Runtime
 
 | Component               | Role             | Expected behavior                                                                                               |
 | ----------------------- | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| Robot/Pi hardware       | Hardware runtime | Own motors, lidar, and cameras behind `indory_server`.                                                          |
+| Robot hardware          | Hardware runtime | Own motors, lidar, and cameras behind `indory_server`.                                                          |
 | `indory_server` adapter | ZMQ adapter      | Expose state, command, RPC, and camera sockets to LeRobot clients.                                              |
 | Mac                     | Teleop client    | Use `xlerobot_client` to send commands to the adapter; use local leader arms and keyboard as input devices.     |
 | Mac                     | Record client    | Use LeRobot active record: read teleop input, call `send_action()`, and save observations/actions to a dataset. |

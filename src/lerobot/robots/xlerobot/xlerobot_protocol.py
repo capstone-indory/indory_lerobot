@@ -6,7 +6,6 @@ from typing import Any
 
 from .xlerobot_constants import CANONICAL_MOTORS, HEAD_MOTORS, LEFT_MOTORS, RIGHT_MOTORS, SCHEMA_VERSION
 
-
 BASE_VELOCITY_KEYS = ("x.vel", "y.vel", "theta.vel")
 STATE_NAMES = (*LEFT_MOTORS, *RIGHT_MOTORS, *HEAD_MOTORS, *BASE_VELOCITY_KEYS)
 
@@ -52,7 +51,7 @@ def canonical_ticks_to_action(
 ) -> dict[str, float]:
     if len(canonical_ticks) < len(CANONICAL_MOTORS):
         raise ValueError(f"canonical ticks must contain {len(CANONICAL_MOTORS)} values")
-    action = {name: 0.0 for name in STATE_NAMES}
+    action = dict.fromkeys(STATE_NAMES, 0.0)
     for motor, value in zip(CANONICAL_MOTORS, canonical_ticks, strict=False):
         action[motor] = float(value)
     base = list(base_cmd or (0.0, 0.0, 0.0))
