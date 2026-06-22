@@ -60,6 +60,9 @@ Commands sent to `8856` are MessagePack dictionaries using
 ## Key Files
 
 - `INDORY_ZMQ_ROLES.md`: detailed role split and known missing work.
+- `INDORY_CONTROL_API.md`: north-bound ZMQ REQ/REP + PUB/SUB contract for
+  `indory_server` <-> `indory_lerobot` daemon mode (replaces subprocess
+  stdout capture). REQ/REP on port 8891, events PUB on port 8893.
 - `scripts/indory_mac_teleop.sh`: adapter-backed Mac teleop wrapper for standalone/manual use.
 - `scripts/indory_mac_leader_publisher.py`: Mac-side DROP leader action publisher. It does not connect to the adapter command socket.
 - `scripts/indory_mac_record.sh`: Mac active recording wrapper.
