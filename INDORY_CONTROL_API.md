@@ -48,9 +48,23 @@ Why two ports:
   `stop_run`, `get_run_status`). Push events go over PUB/SUB so subscribers
   don't have to poll.
 
-Wire format: **MessagePack**, `use_bin_type=True`, single frame per REQ/REP
-message, multi-frame OK for PUB events (topic prefix optional but
-recommended: `b"run.<run_id>"`).
+Wire format: **JSON**, UTF-8, single frame per REQ/REP message. PUB events
+are also single-frame JSON; the topic prefix is conveyed inside the JSON
+payload under the `run_id` field, not as a ZMQ frame prefix.
+
+Why JSON instead of MessagePack:
+
+- Both Python and JVM have zero-cost JSON support in the standard library
+  and Spring Boot starter, so the wire format adds no dependency.
+- The earlier MessagePack draft required
+  `com.fasterxml.jackson.dataformat:jackson-dataformat-msgpack`, which
+  was not reliably resolvable on the Spring side. JSON removes that risk.
+- Debug ergonomics: `tcpdump -A` and `curl --data-binary` Just Work
+  against the daemon during integration testing.
+
+Migration: any existing MessagePack client should switch its encoder/decoder
+to JSON. The schema field (`indory_control_v1`) and envelope shape are
+unchanged, only the on-wire serialization format.
 
 Default bind host: `0.0.0.0`. Override with `INDORY_CONTROL_BIND_HOST` /
 `INDORY_EVENTS_BIND_HOST`.
